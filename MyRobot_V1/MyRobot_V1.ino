@@ -54,7 +54,7 @@ void loop() {
                 break;
 
             case 'e':
-                stop(in1, in2, in3, in4, enA, enB);
+                stop(in1, in2, enA, in3, in4, enB);
                 Serial.println("STOP");
                 break;
 
