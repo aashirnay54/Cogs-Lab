@@ -30,7 +30,7 @@ void drive(int in1, int in2, int enA) {
     digitalWrite(enA, HIGH);  // Enable motor driver
 }
 
-void stop(int in1, int in2, int 3, int 4, int enA, int enB) {
+void stop(int in1, int in2, int in3, int in4, int enA, int enB) {
     digitalWrite(in1, LOW);   // Direction control: IN1
     digitalWrite(in2, HIGH);  // Direction control: IN2 (sets rotation direction)
     digitalWrite(in3, LOW);
