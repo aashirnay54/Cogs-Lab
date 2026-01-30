@@ -1,46 +1,25 @@
+// MyRobot-V1.ino
+// This file must be named the same as your sketch folder
+int enA = 9;   // Enable pin for Motor A — must be a PWM-capable pin
+int in1 = 8;   // Direction control pin 1 for Motor A
+int in2 = 7;   // Direction control pin 2 for Motor A
 
+int enB = 5;     // Enable pin for Motor B
+int in3 = 4;   // Direction control pin 1 for motor B
+int in4 = 2;    // Direction control pin 2 for motor B
 
-#include <WiFiS3.h>  // Correct library for Uno R4 WiFi
-
-const char* ssid     = "nhu";
-const char* password = "44444444";
-
-int enA = 9;   // PWM pin for Motor A
-int in1 = 8;
-int in2 = 7;
-
-int enB = 5;   // PWM pin for Motor B
-int in3 = 4;
-int in4 = 2;
-
-// --- Motor speed ---
-int motorSpeed = 200; // 0-255
-
-// ------------------- SETUP -------------------
 void setup() {
-  Serial.begin(115200);
+    pinMode(enA, OUTPUT);
+    pinMode(in1, OUTPUT);
+    pinMode(in2, OUTPUT);
 
-  // --- Motor pins ---
-  pinMode(in1, OUTPUT);
-  pinMode(in2, OUTPUT);
-  pinMode(enA, OUTPUT);
+    pinMode(enB, OUTPUT);
+    pinMode(in3, OUTPUT);
+    pinMode(in4, OUTPUT);
 
-  pinMode(in3, OUTPUT);
-  pinMode(in4, OUTPUT);
-  pinMode(enB, OUTPUT);
+    Serial.begin(9600);
 
-  // --- Connect to Wi-Fi ---
-  Serial.print("Connecting to Wi-Fi...");
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nConnected to Wi-Fi!");
-  Serial.print("IP Address: ");
-  Serial.println(WiFi.localIP());
 }
-
 
 void loop() {
     // put your main code here, to run repeatedly:
@@ -69,23 +48,22 @@ void loop() {
                 Serial.println("RIGHT");
                 break;
 
-
             case 'q':
                 turnRobotInPlace(in1, in2, enA, in3, in4, enB);
                 Serial.println("IN PLACE");
                 break;
 
             case 'e':
-                stop(in1, in2, 3, 4, enA, enB);
+                stop(in1, in2, in3, in4, enA, enB);
                 Serial.println("STOP");
                 break;
-         
+
         }
-
     }
-
 
 
     
 }
+
+
 
