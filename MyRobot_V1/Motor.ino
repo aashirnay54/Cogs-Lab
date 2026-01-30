@@ -60,14 +60,14 @@ void moveBackward(int in1, int in2, int enA, int in3, int in4, int enB) {
 
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 125);   // low speed
+    analogWrite(enA, 150);   // low speed
 
 
 
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 125);   // low speed
+    analogWrite(enB, 150);   // low speed
 
 
 
