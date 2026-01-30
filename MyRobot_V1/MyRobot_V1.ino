@@ -19,53 +19,48 @@ void setup() {
     pinMode(in4, OUTPUT);
 
     Serial.begin(9600);
-    Serial.println("Use arrow keys to control the car")
+
 }
 
 void loop() {
     // put your main code here, to run repeatedly:
 
-    // // Drive for 1 second
-    // logInfo(Serial, "Driving");
-    // drive(in1, in2, enA);
-    // delay(1000);
-
-    // // Stop for 1 second
-    // logInfo(Serial, "Stopping");
-    // stop(in1, in2, enA);
-    // delay(1000);
-
-    void loop() {
     if (Serial.available()) {
         char c = Serial.read();
 
-        if (c == 27) {
-            Serial.read();      
-            char arrow = Serial.read();
+        switch (c) {
+            case 'w':
+                moveForward(in1, in2, enA, in3, in4, enB);
+                Serial.println("FORWARD");
+                break;
 
-            switch (arrow) {
-                case 'A':  // UP
-                    moveForward(in1, in2, enA, in3, in4, enB);
-                    Serial.println("Forward");
-                    break;
+            case 's':
+                moveBackward(in1, in2, enA, in3, in4, enB);
+                Serial.println("BACKWARD");
+                break;
 
-                case 'B':  // DOWN
-                    moveBackward(in1, in2, enA, in3, in4, enB);
-                    Serial.println("Backward");
-                    break;
+            case 'a':
+                moveLeft(in1, in2, enA, in3, in4, enB);
+                Serial.println("LEFT");
+                break;
 
-                case 'C':  // RIGHT
-                    moveRight(in1, in2, enA, in3, in4, enB);
-                    Serial.println("Right");
-                    break;
+            case 'd':
+                moveRight(in1, in2, enA, in3, in4, enB);
+                Serial.println("RIGHT");
+                break;
 
-                case 'D':  // LEFT
-                    moveLeft(in1, in2, enA, in3, in4, enB);
-                    Serial.println("Left");
-                    break;
-            }
+
+            case 'q':
+                turnRobotInPlace(in1, in2, enA, in3, in4, enB);
+                Serial.println("IN PLACE");
+                break;
+
+            
         }
     }
+
+
+
+    
 }
 
-}
