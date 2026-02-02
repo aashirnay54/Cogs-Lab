@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 // MyRobot-V1.ino
 // This file must be named the same as your sketch folder
 int enA = 9;   // Enable pin for Motor A — must be a PWM-capable pin
@@ -67,3 +68,34 @@ void loop() {
 
 
 
+=======
+/\*ESP Recovery sketch\*/
+#include <Wire.h>
+#include <UnoWiFiDevEd.h>
+
+#define BAUD 9600
+WifiData ESPSerial;
+
+void setup()
+{
+Serial.begin(BAUD);
+pinMode(13, OUTPUT);
+digitalWrite(13, LOW);
+
+ESPSerial.begin(BAUD);
+}
+
+void loop()
+{
+while (Serial.available()) {
+char inChar = (char)Serial.read();
+ESPSerial.write(inChar);
+}
+
+while (ESPSerial.available()) {
+char inChar = (char)ESPSerial.read();
+Serial.write(inChar);
+}
+
+}
+>>>>>>> 5fe247cf053b24d3115716488d721a1db4f39346
