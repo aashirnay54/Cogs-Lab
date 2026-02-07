@@ -17,7 +17,7 @@ const int encB = 11;
 // Photocell
 const int photocellPin = A0;
 int photocellValue = 0;
-int threshold = 900;
+int threshold = 58;
 
 // State
 int state = 0;
@@ -25,7 +25,7 @@ bool autonomousMode = false;
 
 // Telemetry
 unsigned long lastPrintTime = 0;
-const int PRINT_INTERVAL = 500;
+const int PRINT_INTERVAL = 1023;
 char currentCommand = 'e';
 
 
@@ -61,6 +61,11 @@ void setup() {
 }
 
 void loop() {
+
+    // Serial.println(analogRead(A0));
+    // delay(300);
+    // return;
+
     unsigned long now = millis();
     
     // Read encoders
@@ -77,8 +82,17 @@ void loop() {
     lastEncBState = encBState;
     
     // Read photocell
-    photocellValue = analogRead(photocellPin);
+    long sum = 0;
+
+    for (int i = 0; i<10; i++) {
+        sum += analogRead(A0);
+        delayMicroseconds(300);
+    }
+
+    photocellValue = sum / 10;
     
+    delay(300);
+
     // Handle commands (only if not replaying)
     if (Serial.available() && !replaying) {
         char c = Serial.read();
@@ -163,19 +177,20 @@ void loop() {
     if (autonomousMode) {
         if (state == 0) {
             // Waiting on white tape
-            if (photocellValue < threshold) {
-                moveForward();
+            if (photocellValue > threshold) {
                 state = 1;
+                moveForward();
             }
         }
         else if (state == 1) {
             // Driving on dark floor
-            if (photocellValue > threshold) {
+            if (photocellValue < threshold) {
+                state = 0;
                 stop();
-                state = 2;
             }
         }
-        // state 2: stay stopped
+
+        
     }
     
     // Print telemetry
@@ -184,14 +199,16 @@ void loop() {
         Serial.print(',');
         Serial.print(currentCommand);
         Serial.print(',');
+        // Serial.print("Encoder A: ");
         Serial.print(encoderACount);
         Serial.print(',');
+        // Serial.print("Encoder B: ");
         Serial.print(encoderBCount);
         Serial.print(',');
+        // Serial.print("Photocell: ");
         Serial.print(photocellValue);
         Serial.print(',');
-        Serial.println(state);
-        lastPrintTime = now;
+        Serial.println(state); 
     }
 }
 
