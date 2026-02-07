@@ -19,7 +19,7 @@ const int photocellPin = A0;
 int photocellValue = 0;
 int Lightthreshold = 140;
 int darkThreshold = 125;
-int hysteresis = 10;  // Prevents flickering between states
+int hysteresis = 10;
 
 // Moving average filter for photocell
 const int NUM_READINGS = 10;
@@ -54,11 +54,8 @@ unsigned long replayStart = 0;
 String recordedCommands = "";
 int replayPos = 0;
 
-
-// PhotCell Changes
-
+// Photocell edge detection
 int prev = 0;
-
 
 void setup() {
     pinMode(enA, OUTPUT);
@@ -141,11 +138,12 @@ void loop() {
         }
         else if (c == 'm') {
             // Start autonomous mode
-            stop();  // Stop any previous motion
+            stop();
             autonomousMode = true;
             state = 0;
-            prev = photocellValue;
-            Serial.println("# AUTONOMOUS MODE STARTED");
+            prev = photocellValue;  // Initialize prev to current reading
+            Serial.print("# AUTONOMOUS MODE STARTED - Initial photocell: ");
+            Serial.println(prev);
         }
         else if (c == 'e') {
             // Stop and return to manual
@@ -193,27 +191,37 @@ void loop() {
         }
     }
     
-    int diff = photocellValue - prev; //+ dark -> light, - if light to dark
-
+    // Calculate difference for edge detection
+    int diff = photocellValue - prev;
     
-
+    // Autonomous behavior with edge detection
     if (autonomousMode) {
+        // Debug output
+        Serial.print("# State: ");
+        Serial.print(state);
+        Serial.print(", Photo: ");
+        Serial.print(photocellValue);
+        Serial.print(", Prev: ");
+        Serial.print(prev);
+        Serial.print(", Diff: ");
+        Serial.println(diff);
+        
         if (state == 0) {
-            // Waiting on white tape
-            if (diff >= 20) { 
+            // Waiting on light surface - detect transition TO dark
+            if (diff >= 20) {
                 moveForward();
                 state = 1;
-                prev = photocellValue;  
-                Serial.println("# Transition: dark→light, moving");
+                prev = photocellValue;
+                Serial.println("# TRIGGERED: light→dark, MOVING FORWARD");
             }
         }
         else if (state == 1) {
-            // Driving on dark floor
+            // Driving on dark surface - detect transition TO light
             if (diff <= -20) {
                 stop();
                 state = 0;
-                prev = photocellValue;  
-                Serial.println("# Transition: light→dark, stopping");
+                prev = photocellValue;
+                Serial.println("# TRIGGERED: dark→light, STOPPING");
             }
         }
     }
@@ -255,7 +263,7 @@ void calibratePhotocell() {
     maxReading = 0;
     
     unsigned long startTime = millis();
-    while (millis() - startTime < 5000) {  // 5 second calibration
+    while (millis() - startTime < 5000) {
         int val = analogRead(photocellPin);
         if (val < minReading) minReading = val;
         if (val > maxReading) maxReading = val;
@@ -263,7 +271,7 @@ void calibratePhotocell() {
     }
     
     Lightthreshold = (minReading + maxReading) / 2;
-    hysteresis = (maxReading - minReading) / 10;  // 10% of range
+    hysteresis = (maxReading - minReading) / 10;
     
     Serial.print("# Min: ");
     Serial.print(minReading);
