@@ -41,7 +41,8 @@ void stop() {
 // TODO: add your own driving functions here
 
 void moveForward() {
-    digitalWrite(in1, LOW);  digitalWrite(in2, HIGH);
+    digitalWrite(in1, LOW);  
+    digitalWrite(in2, HIGH);
     analogWrite(enA, 255);
     
     delay(40);
