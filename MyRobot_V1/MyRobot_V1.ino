@@ -291,12 +291,12 @@ void loop() {
         }
         else if (lastOutput > 0) {
             // Object is farther than set point → drive forward
-            int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
+            int pwm = constrain((int)abs(lastOutput), 40, 100);
             moveForwardPWM(pwm);
         }
         else {
             // Object is closer than set point → drive backward
-            int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
+            int pwm = constrain((int)abs(lastOutput), 40, 100);
             moveBackwardPWM(pwm);
         }
     }
