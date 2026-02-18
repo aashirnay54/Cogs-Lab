@@ -1,6 +1,14 @@
-// MyRobot-V2.ino
-// Added: Ultrasonic sensor + P-controller "Follow Me" mode (press 'f')
-////////////////////////
+// bug: not a persistent WiFi client (connection reset)
+
+#include "WiFiS3.h"
+
+// ── WiFi credentials ──────────────────────────────────────────────
+char ssid[] = "Meli";
+char pass[] = "melmel12";
+int wifiStatus = WL_IDLE_STATUS;
+WiFiServer server(3333);
+WiFiClient persistentClient; // persistent — stays connected across loop iterations
+// ─────────────────────────────────────────────────────────────────
 
 // Motor A pins
 const int enA = 9;
@@ -40,13 +48,13 @@ int   usReadIndex  = 0;
 float usTotal      = 0.0;
 
 // P-Controller parameters
-const float SET_POINT = 25;   // Target distance in cm
-const float Kp        = 10.0; // Proportional gain — tune this!
-const int   DEAD_ZONE = 2;    // ±2 cm window where robot holds still
-const int   MIN_PWM   = 60;   // Minimum PWM to overcome motor friction
-const int   MAX_PWM   = 255;  // Maximum PWM output
-const float MAX_RANGE = 200.0;// Ignore readings beyond 200 cm
-const float MIN_RANGE = 2.0;  // Ignore readings below 2 cm
+const float SET_POINT = 25;
+const float Kp        = 10.0;
+const int   DEAD_ZONE = 2;
+const int   MIN_PWM   = 60;
+const int   MAX_PWM   = 255;
+const float MAX_RANGE = 200.0;
+const float MIN_RANGE = 2.0;
 
 // Calibration
 int minReading = 1023;
@@ -85,6 +93,9 @@ float lastError = 0.0;
 float lastOutput = 0.0;
 
 void setup() {
+    Serial.begin(115200);
+    while (!Serial);
+
     pinMode(enA, OUTPUT);
     pinMode(in1, OUTPUT);
     pinMode(in2, OUTPUT);
@@ -99,34 +110,57 @@ void setup() {
     lastEncAState = digitalRead(encA);
     lastEncBState = digitalRead(encB);
 
-    // Initialize photocell moving average
-    for (int i = 0; i < NUM_READINGS; i++) {
-        photocellReadings[i] = 0;
-    }
+    for (int i = 0; i < NUM_READINGS; i++) photocellReadings[i] = 0;
 
-    // Initialize ultrasonic moving average
-    for (int i = 0; i < US_NUM_READINGS; i++) {
-        usReadings[i] = SET_POINT;
-    }
+    for (int i = 0; i < US_NUM_READINGS; i++) usReadings[i] = SET_POINT;
     usTotal = SET_POINT * US_NUM_READINGS;
 
-    Serial.begin(115200);
     Serial.println("time_ms,cmd,encA_count,encB_count,photocell,state,distance_cm,error,output");
+
+    // ── WiFi Setup ───────────────────────────────────────────────
+    if (WiFi.status() == WL_NO_MODULE) {
+        Serial.println("WiFi module not found!");
+        while (true);
+    }
+
+    while (wifiStatus != WL_CONNECTED) {
+        Serial.print("Connecting to: ");
+        Serial.println(ssid);
+        wifiStatus = WiFi.begin(ssid, pass);
+        delay(10000);
+    }
+
+    Serial.println("Connected to WiFi!");
+    Serial.print("IP Address: ");
+    Serial.println(WiFi.localIP());
+
+    server.begin();
+    Serial.println("TCP server started on port 3333");
+    // ─────────────────────────────────────────────────────────────
 }
 
 void loop() {
     unsigned long now = millis();
 
+    // ── WiFi Reconnect ───────────────────────────────────────────
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("WiFi disconnected! Retrying...");
+        wifiStatus = WiFi.begin(ssid, pass);
+        delay(10000);
+        if (wifiStatus == WL_CONNECTED) {
+            Serial.println("Reconnected!");
+            Serial.print("IP Address: ");
+            Serial.println(WiFi.localIP());
+        }
+        return;
+    }
+    // ─────────────────────────────────────────────────────────────
+
     // Read encoders
     int encAState = digitalRead(encA);
     int encBState = digitalRead(encB);
-
-    if (encAState != lastEncAState && encAState == HIGH) {
-        encoderACount++;
-    }
-    if (encBState != lastEncBState && encBState == HIGH) {
-        encoderBCount++;
-    }
+    if (encAState != lastEncAState && encAState == HIGH) encoderACount++;
+    if (encBState != lastEncBState && encBState == HIGH) encoderBCount++;
     lastEncAState = encAState;
     lastEncBState = encBState;
 
@@ -137,7 +171,7 @@ void loop() {
     readIndex = (readIndex + 1) % NUM_READINGS;
     photocellValue = photocellTotal / NUM_READINGS;
 
-    // Read ultrasonic every 50ms to avoid pin/timing conflicts
+    // Read ultrasonic every 50ms
     static unsigned long lastUsReadTime = 0;
     if (now - lastUsReadTime >= 50) {
         float rawDistance = readUltrasonic();
@@ -151,9 +185,37 @@ void loop() {
         lastUsReadTime = now;
     }
 
+    // ── Accept new client only if we don't have one ───────────────
+    if (!persistentClient || !persistentClient.connected()) {
+        persistentClient = server.available();
+        if (persistentClient) {
+            Serial.println("# Client connected");
+        }
+    }
+
+    // ── Read command from persistent WiFi client OR Serial ────────
+    // Drain entire buffer, keep only the LAST real command character
+    // Skip \n \r and spaces so they don't overwrite the actual command
+    char c = 0;
+    if (persistentClient && persistentClient.connected() && persistentClient.available()) {
+        while (persistentClient.available()) {
+            char incoming = (char)persistentClient.read();
+            if (incoming != '\n' && incoming != '\r' && incoming != ' ') {
+                c = incoming;
+            }
+        }
+    } else if (Serial.available()) {
+        while (Serial.available()) {
+            char incoming = (char)Serial.read();
+            if (incoming != '\n' && incoming != '\r' && incoming != ' ') {
+                c = incoming;
+            }
+        }
+    }
+    // ─────────────────────────────────────────────────────────────
+
     // Handle commands (only if not replaying)
-    if (Serial.available() && !replaying) {
-        char c = Serial.read();
+    if (c != 0 && !replaying) {
         currentCommand = c;
 
         if (c == 'x') {
@@ -218,18 +280,14 @@ void loop() {
     // Replay logic
     if (replaying) {
         unsigned long elapsed = now - replayStart;
-
         int nextColon = recordedCommands.indexOf(':', replayPos);
         if (nextColon > 0) {
             unsigned long cmdTime = recordedCommands.substring(replayPos, nextColon).toInt();
-
             if (elapsed >= cmdTime) {
                 char cmd = recordedCommands.charAt(nextColon + 1);
                 executeCommand(cmd);
                 currentCommand = cmd;
-
                 replayPos = recordedCommands.indexOf(',', nextColon) + 1;
-
                 if (replayPos >= recordedCommands.length() || replayPos == 0) {
                     replaying = false;
                     stop();
@@ -239,87 +297,60 @@ void loop() {
         }
     }
 
-    // Calculate difference for photocell edge detection
+    // Photocell edge detection
     int diff = photocellValue - prev;
 
-    // Autonomous photocell behavior with edge detection
+    // Autonomous photocell behavior
     if (autonomousMode) {
-        Serial.print("# State: ");
-        Serial.print(state);
-        Serial.print(", Photo: ");
-        Serial.print(photocellValue);
-        Serial.print(", Prev: ");
-        Serial.print(prev);
-        Serial.print(", Diff: ");
-        Serial.println(diff);
+        Serial.print("# State: "); Serial.print(state);
+        Serial.print(", Photo: "); Serial.print(photocellValue);
+        Serial.print(", Prev: ");  Serial.print(prev);
+        Serial.print(", Diff: ");  Serial.println(diff);
 
         if (state == 0) {
             if (diff >= 20) {
                 moveForward();
                 state = 1;
                 prev = photocellValue;
-                Serial.println("# TRIGGERED: light→dark, MOVING FORWARD");
+                Serial.println("# TRIGGERED: light->dark, MOVING FORWARD");
             }
-        }
-        else if (state == 1) {
+        } else if (state == 1) {
             if (diff <= -20) {
                 stop();
                 state = 0;
                 prev = photocellValue;
-                Serial.println("# TRIGGERED: dark→light, STOPPING");
+                Serial.println("# TRIGGERED: dark->light, STOPPING");
             }
         }
     }
 
-    // ── Follow-Me P-Controller behavior ──
+    // Follow-Me P-Controller
     if (followMode) {
-        // Serial.print("FOLLOW | Dist: ");
-        // Serial.print(lastFilteredDistance);
-        // Serial.print(" | Err: ");
-        // Serial.print(lastError);
-        // Serial.print(" | Out: ");
-        // Serial.print(lastOutput);
-        // Serial.print(" | DeadZone: ");
-        // Serial.println(abs(lastError) < DEAD_ZONE ? "YES" : "NO");
-
         lastError  = SET_POINT - lastFilteredDistance;
         lastOutput = Kp * lastError;
 
         if (abs(lastError) < DEAD_ZONE) {
             stop();
-        }
-        else if (lastOutput > 0) {
-            // Object farther than set point → drive forward
+        } else if (lastOutput > 0) {
             int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
             moveForwardPWM(pwm);
-        }
-        else {
-            // Object closer than set point → drive backward
+        } else {
             int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
             moveBackwardPWM(pwm);
         }
     }
 
-    // Print telemetry
+    // Telemetry
     if (now - lastPrintTime >= PRINT_INTERVAL) {
-        Serial.print("Time: ");
-        Serial.print(now);
-        Serial.print(" | Cmd: ");
-        Serial.print(currentCommand);
-        Serial.print(" | EncA: ");
-        Serial.print(encoderACount);
-        Serial.print(" | EncB: ");
-        Serial.print(encoderBCount);
-        Serial.print(" | Photo: ");
-        Serial.print(photocellValue);
-        Serial.print(" | State: ");
-        Serial.print(state);
-        Serial.print(" | Dist: ");
-        Serial.print(lastFilteredDistance, 1);
-        Serial.print("cm | Err: ");
-        Serial.print(lastError, 1);
-        Serial.print(" | Out: ");
-        Serial.println(lastOutput, 1);
+        Serial.print("Time: ");   Serial.print(now);
+        Serial.print(" | Cmd: "); Serial.print(currentCommand);
+        Serial.print(" | EncA: ");Serial.print(encoderACount);
+        Serial.print(" | EncB: ");Serial.print(encoderBCount);
+        Serial.print(" | Photo: ");Serial.print(photocellValue);
+        Serial.print(" | State: ");Serial.print(state);
+        Serial.print(" | Dist: "); Serial.print(lastFilteredDistance, 1);
+        Serial.print("cm | Err: ");Serial.print(lastError, 1);
+        Serial.print(" | Out: ");  Serial.println(lastOutput, 1);
         lastPrintTime = now;
     }
 }
@@ -334,31 +365,23 @@ float readUltrasonic() {
     delayMicroseconds(2);
 
     long duration = pulseIn(echoPin, HIGH, 60000);
+    if (duration == 0 || duration < 150) return -1;
 
-    if (duration == 0 || duration < 150) {
-        return -1;  // No echo → out of range
-    }
-
-    // Speed of sound ≈ 0.0343 cm/µs, divide by 2 for round trip
     float distance = (duration * 0.0343) / 2.0;
-
-    if (distance < MIN_RANGE || distance > MAX_RANGE) {
-        return -1;
-    }
-
+    if (distance < MIN_RANGE || distance > MAX_RANGE) return -1;
     return distance;
 }
 
 // ──────────────────── Command Execution ──────────────────────────
 void executeCommand(char c) {
     switch (c) {
-        case 'w': moveForward();        break;
-        case 's': moveBackward();       break;
-        case 'a': moveLeft();           break;
-        case 'd': moveRight();          break;
-        case 'q': turnRobotInPlace();   break;
+        case 'w': moveForward();      break;
+        case 's': moveBackward();     break;
+        case 'a': moveLeft();         break;
+        case 'd': moveRight();        break;
+        case 'q': turnRobotInPlace(); break;
         case 'r': encoderACount = 0; encoderBCount = 0; break;
-        case 'e': stop();               break;
+        case 'e': stop();             break;
     }
 }
 
@@ -381,13 +404,9 @@ void calibratePhotocell() {
     Lightthreshold = (minReading + maxReading) / 2;
     hysteresis = (maxReading - minReading) / 10;
 
-    Serial.print("# Min: ");
-    Serial.print(minReading);
-    Serial.print(", Max: ");
-    Serial.print(maxReading);
-    Serial.print(", Threshold: ");
-    Serial.print(Lightthreshold);
-    Serial.print(", Hysteresis: ");
-    Serial.println(hysteresis);
+    Serial.print("# Min: ");        Serial.print(minReading);
+    Serial.print(", Max: ");        Serial.print(maxReading);
+    Serial.print(", Threshold: ");  Serial.print(Lightthreshold);
+    Serial.print(", Hysteresis: "); Serial.println(hysteresis);
     Serial.println("# Calibration complete");
 }
