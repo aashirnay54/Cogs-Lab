@@ -1,5 +1,6 @@
 // MyRobot-V2.ino
 // Added: Ultrasonic sensor + P-controller "Follow Me" mode (press 'f')
+////////////////////////
 
 // Motor A pins
 const int enA = 9;
@@ -40,12 +41,12 @@ float usTotal      = 0.0;
 
 // P-Controller parameters
 const float SET_POINT = 25;   // Target distance in cm
-const float Kp        = 10.0;   // Proportional gain — tune this!
-const int   DEAD_ZONE = 2;      // ±3 cm window where robot holds still
-const int   MIN_PWM   = 60;     // Minimum PWM to overcome motor friction
-const int   MAX_PWM   = 255;    // Maximum PWM output
-const float MAX_RANGE  = 200.0; // Ignore readings beyond 200 cm
-const float MIN_RANGE  = 2.0;   // Ignore readings below 2 cm
+const float Kp        = 10.0; // Proportional gain — tune this!
+const int   DEAD_ZONE = 2;    // ±2 cm window where robot holds still
+const int   MIN_PWM   = 60;   // Minimum PWM to overcome motor friction
+const int   MAX_PWM   = 255;  // Maximum PWM output
+const float MAX_RANGE = 200.0;// Ignore readings beyond 200 cm
+const float MIN_RANGE = 2.0;  // Ignore readings below 2 cm
 
 // Calibration
 int minReading = 1023;
@@ -94,32 +95,32 @@ void setup() {
     pinMode(encB, INPUT_PULLUP);
     pinMode(trigPin, OUTPUT);
     pinMode(echoPin, INPUT);
-    
+
     lastEncAState = digitalRead(encA);
     lastEncBState = digitalRead(encB);
-    
+
     // Initialize photocell moving average
     for (int i = 0; i < NUM_READINGS; i++) {
         photocellReadings[i] = 0;
     }
-    
+
     // Initialize ultrasonic moving average
     for (int i = 0; i < US_NUM_READINGS; i++) {
         usReadings[i] = SET_POINT;
     }
     usTotal = SET_POINT * US_NUM_READINGS;
-    
+
     Serial.begin(115200);
     Serial.println("time_ms,cmd,encA_count,encB_count,photocell,state,distance_cm,error,output");
 }
 
 void loop() {
     unsigned long now = millis();
-    
+
     // Read encoders
     int encAState = digitalRead(encA);
     int encBState = digitalRead(encB);
-    
+
     if (encAState != lastEncAState && encAState == HIGH) {
         encoderACount++;
     }
@@ -128,38 +129,34 @@ void loop() {
     }
     lastEncAState = encAState;
     lastEncBState = encBState;
-    
+
     // Read photocell with moving average filter
     photocellTotal -= photocellReadings[readIndex];
     photocellReadings[readIndex] = analogRead(photocellPin);
     photocellTotal += photocellReadings[readIndex];
     readIndex = (readIndex + 1) % NUM_READINGS;
     photocellValue = photocellTotal / NUM_READINGS;
-    
-    // Read ultrasonic with moving average filter (always, so telemetry has data)
-    // Read ultrasonic every 50ms (not every loop) to avoid pin/timing conflicts
-    static unsigned long lastUsReadTime = 0;
 
+    // Read ultrasonic every 50ms to avoid pin/timing conflicts
+    static unsigned long lastUsReadTime = 0;
     if (now - lastUsReadTime >= 50) {
         float rawDistance = readUltrasonic();
-
-    if (rawDistance >= MIN_RANGE && rawDistance <= MAX_RANGE) {
-        usTotal -= usReadings[usReadIndex];
-        usReadings[usReadIndex] = rawDistance;
-        usTotal += usReadings[usReadIndex];
-        usReadIndex = (usReadIndex + 1) % US_NUM_READINGS;
+        if (rawDistance >= MIN_RANGE && rawDistance <= MAX_RANGE) {
+            usTotal -= usReadings[usReadIndex];
+            usReadings[usReadIndex] = rawDistance;
+            usTotal += usReadings[usReadIndex];
+            usReadIndex = (usReadIndex + 1) % US_NUM_READINGS;
+        }
+        lastFilteredDistance = usTotal / US_NUM_READINGS;
+        lastUsReadTime = now;
     }
-    lastFilteredDistance = usTotal / US_NUM_READINGS;
 
-    lastUsReadTime = now;
-    }
     // Handle commands (only if not replaying)
     if (Serial.available() && !replaying) {
         char c = Serial.read();
         currentCommand = c;
-        
+
         if (c == 'x') {
-            // Start recording
             recording = true;
             recordStart = now;
             recordedCommands = "";
@@ -168,14 +165,12 @@ void loop() {
             Serial.println("# RECORDING STARTED");
         }
         else if (c == 'z') {
-            // Stop recording
             recording = false;
             Serial.println("# RECORDING STOPPED");
             Serial.print("# Commands: ");
             Serial.println(recordedCommands);
         }
         else if (c == 'p') {
-            // Start replay
             replaying = true;
             replayStart = now;
             replayPos = 0;
@@ -184,11 +179,9 @@ void loop() {
             Serial.println("# REPLAYING");
         }
         else if (c == 'c') {
-            // Calibrate photocell
             calibratePhotocell();
         }
         else if (c == 'm') {
-            // Start autonomous photocell mode
             stop();
             autonomousMode = true;
             followMode = false;
@@ -198,7 +191,6 @@ void loop() {
             Serial.println(prev);
         }
         else if (c == 'f') {
-            // Start follow-me mode
             stop();
             followMode = true;
             autonomousMode = false;
@@ -208,7 +200,6 @@ void loop() {
             Serial.println(" cm");
         }
         else if (c == 'e') {
-            // Stop and return to manual
             autonomousMode = false;
             followMode = false;
             state = 0;
@@ -216,32 +207,29 @@ void loop() {
             Serial.println("# MANUAL MODE");
         }
         else if (!autonomousMode && !followMode) {
-            // Manual controls
             executeCommand(c);
-            
-            // Record command with timestamp
             if (recording) {
                 unsigned long elapsed = now - recordStart;
                 recordedCommands += String(elapsed) + ":" + c + ",";
             }
         }
     }
-    
+
     // Replay logic
     if (replaying) {
         unsigned long elapsed = now - replayStart;
-        
+
         int nextColon = recordedCommands.indexOf(':', replayPos);
         if (nextColon > 0) {
             unsigned long cmdTime = recordedCommands.substring(replayPos, nextColon).toInt();
-            
+
             if (elapsed >= cmdTime) {
                 char cmd = recordedCommands.charAt(nextColon + 1);
                 executeCommand(cmd);
                 currentCommand = cmd;
-                
+
                 replayPos = recordedCommands.indexOf(',', nextColon) + 1;
-                
+
                 if (replayPos >= recordedCommands.length() || replayPos == 0) {
                     replaying = false;
                     stop();
@@ -250,10 +238,10 @@ void loop() {
             }
         }
     }
-    
+
     // Calculate difference for photocell edge detection
     int diff = photocellValue - prev;
-    
+
     // Autonomous photocell behavior with edge detection
     if (autonomousMode) {
         Serial.print("# State: ");
@@ -264,7 +252,7 @@ void loop() {
         Serial.print(prev);
         Serial.print(", Diff: ");
         Serial.println(diff);
-        
+
         if (state == 0) {
             if (diff >= 20) {
                 moveForward();
@@ -282,7 +270,7 @@ void loop() {
             }
         }
     }
-    
+
     // ── Follow-Me P-Controller behavior ──
     if (followMode) {
         // Serial.print("FOLLOW | Dist: ");
@@ -296,26 +284,22 @@ void loop() {
 
         lastError  = SET_POINT - lastFilteredDistance;
         lastOutput = Kp * lastError;
-        
+
         if (abs(lastError) < DEAD_ZONE) {
-            // Within dead zone — hold still
             stop();
         }
         else if (lastOutput > 0) {
-            // Object is farther than set point → drive forward
-            int pwm = constrain((int)abs(lastOutput), 30, 60);  
+            // Object farther than set point → drive forward
+            int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
             moveForwardPWM(pwm);
-
-            
         }
         else {
-            // Object is closer than set point → drive backward
-            int pwm = constrain((int)abs(lastOutput), 30, 60);
+            // Object closer than set point → drive backward
+            int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
             moveBackwardPWM(pwm);
         }
     }
-    
-    // Print telemetry
+
     // Print telemetry
     if (now - lastPrintTime >= PRINT_INTERVAL) {
         Serial.print("Time: ");
@@ -347,72 +331,45 @@ float readUltrasonic() {
     digitalWrite(trigPin, HIGH);
     delayMicroseconds(10);
     digitalWrite(trigPin, LOW);
-
     delayMicroseconds(2);
-    
+
     long duration = pulseIn(echoPin, HIGH, 60000);
-    
+
     if (duration == 0 || duration < 150) {
         return -1;  // No echo → out of range
     }
-    
+
     // Speed of sound ≈ 0.0343 cm/µs, divide by 2 for round trip
     float distance = (duration * 0.0343) / 2.0;
 
     if (distance < MIN_RANGE || distance > MAX_RANGE) {
         return -1;
     }
-    
+
     return distance;
 }
 
 // ──────────────────── Command Execution ──────────────────────────
 void executeCommand(char c) {
     switch (c) {
-        case 'w': moveForward(); break;
-        case 's': moveBackward(); break;
-        case 'a': moveLeft(); break;
-        case 'd': moveRight(); break;
-        case 'q': turnRobotInPlace(); break;
+        case 'w': moveForward();        break;
+        case 's': moveBackward();       break;
+        case 'a': moveLeft();           break;
+        case 'd': moveRight();          break;
+        case 'q': turnRobotInPlace();   break;
         case 'r': encoderACount = 0; encoderBCount = 0; break;
-        case 'e': stop(); break;
+        case 'e': stop();               break;
     }
-}
-
-// ──────────────────── Motor Functions ────────────────────────────
-
-
-// Variable-speed functions (used by P-controller)
-void moveForwardPWM(int speed) {
-    digitalWrite(in1, LOW); 
-    digitalWrite(in2, HIGH);
-    analogWrite(enA, speed);
-    
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-    analogWrite(enB, speed);
-
-}
-
-void moveBackwardPWM(int speed) {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, speed);
-    
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, speed);
-
 }
 
 // ──────────────────── Calibration ────────────────────────────────
 void calibratePhotocell() {
     Serial.println("# Calibrating photocell...");
     Serial.println("# Move robot over dark and light areas");
-    
+
     minReading = 1023;
     maxReading = 0;
-    
+
     unsigned long startTime = millis();
     while (millis() - startTime < 5000) {
         int val = analogRead(photocellPin);
@@ -420,10 +377,10 @@ void calibratePhotocell() {
         if (val > maxReading) maxReading = val;
         delay(50);
     }
-    
+
     Lightthreshold = (minReading + maxReading) / 2;
     hysteresis = (maxReading - minReading) / 10;
-    
+
     Serial.print("# Min: ");
     Serial.print(minReading);
     Serial.print(", Max: ");

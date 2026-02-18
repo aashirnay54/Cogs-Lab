@@ -1,91 +1,67 @@
 /**
  * @file Motor.ino
- * @brief Simple H-bridge motor control helpers.
- *
- * Provides a minimal interface for driving a DC motor using
- * digital GPIO pins (e.g. Arduino-style platforms).
- *
- * The motor direction is controlled via two input pins,
- * while a separate enable pin turns the motor on or off.
- *
+ * @brief H-bridge motor control helpers.
  * @author Paul Bucci
  * @date 2026
  */
 
-/**
- * @brief Drives a DC motor in a fixed direction using an H-bridge.
- *
- * @param in1 GPIO pin connected to motor driver input 1 (direction control)
- * @param in2 GPIO pin connected to motor driver input 2 (direction control)
- * @param enA GPIO pin connected to motor driver enable pin (motor on/off)
- */
-
-
-
 void drive() {
-    digitalWrite(in1, LOW);   // Direction control: IN1
-    digitalWrite(in2, HIGH);  // Direction control: IN2 (sets rotation direction)
-    digitalWrite(enA, HIGH);  // Enable motor driver
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+    digitalWrite(enA, HIGH);
 }
 
 void stop() {
-    digitalWrite(in1, LOW);   // Direction control: IN1
-    digitalWrite(in2, HIGH);  // Direction control: IN2 (sets rotation direction)
-    analogWrite(enA, 0);   // Disable motor driver
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 0);
     digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-    analogWrite(enB, 0);   // Disable motor driver
-
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 0);
 }
-
-// TODO: add your own driving functions here
 
 void moveForward() {
-    digitalWrite(in1, LOW);  
+    digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    analogWrite(enA, 255);
-    
-    delay(40);
-    
-    digitalWrite(in3, LOW);  digitalWrite(in4, HIGH);
-    analogWrite(enB, 240);  
+    analogWrite(enA, 255);  // Left motor — max, it needs it due to stiffer gearbox
+
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+    analogWrite(enB, 230);  // Right motor — tuned to match left encoder counts
 }
 
-
 void moveBackward() {
-
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 200);  
+    analogWrite(enA, 255);
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 200);  
-
+    analogWrite(enB, 230);
 }
 
 void moveRight() {
-
+    // Left motor drives forward
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    analogWrite(enA, 180);  
+    analogWrite(enA, 255);
 
+    // Right motor coasts — both pins LOW avoids stall hum
     digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-    analogWrite(enB, 0);  
-
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 0);
 }
 
 void moveLeft() {
-
+    // Left motor coasts — both pins LOW avoids stall hum
     digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    analogWrite(enA, 0);  
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 0);
 
+    // Right motor drives forward
     digitalWrite(in3, LOW);
     digitalWrite(in4, HIGH);
-    analogWrite(enB, 180);  
-
+    analogWrite(enB, 255);
 }
 
 void turnRobotInPlace() {
@@ -96,5 +72,25 @@ void turnRobotInPlace() {
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
     analogWrite(enB, 255);
+}
 
+// Variable-speed versions used by the P-controller (Follow Me mode)
+void moveForwardPWM(int speed) {
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+    analogWrite(enA, speed);
+
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+    analogWrite(enB, speed);
+}
+
+void moveBackwardPWM(int speed) {
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, speed);
+
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, speed);
 }
