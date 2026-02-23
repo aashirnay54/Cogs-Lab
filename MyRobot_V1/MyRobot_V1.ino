@@ -42,16 +42,16 @@ int readIndex = 0;
 long photocellTotal = 0;
 
 // Moving average filter for ultrasonic
-const int US_NUM_READINGS = 5;
+const int US_NUM_READINGS = 10;
 float usReadings[US_NUM_READINGS];
 int   usReadIndex  = 0;
 float usTotal      = 0.0;
 
 // P-Controller parameters
-const float SET_POINT = 25;
-const float Kp        = 10.0;
-const int   DEAD_ZONE = 2;
-const int   MIN_PWM   = 60;
+const float SET_POINT = 10.0;
+const float Kp        = 3.0;
+const int   DEAD_ZONE = 3;
+const int   MIN_PWM   = 120;
 const int   MAX_PWM   = 255;
 const float MAX_RANGE = 200.0;
 const float MIN_RANGE = 2.0;
@@ -92,6 +92,16 @@ float lastFilteredDistance = 0.0;
 float lastError = 0.0;
 float lastOutput = 0.0;
 
+// Wall-following 
+bool wallFollowMode = false;
+const float WALL_SETPOINT = 5.0;   // cm from wall
+const float Kp_wall = 1.0;          // tune this
+const int BASE_SPEED = 100;         // straight-line base PWM
+
+//fixing motor imbalance
+const int MOTOR_TRIM = 15;
+
+
 void setup() {
     Serial.begin(115200);
     while (!Serial);
@@ -118,24 +128,24 @@ void setup() {
     Serial.println("time_ms,cmd,encA_count,encB_count,photocell,state,distance_cm,error,output");
 
     // ── WiFi Setup ───────────────────────────────────────────────
-    if (WiFi.status() == WL_NO_MODULE) {
-        Serial.println("WiFi module not found!");
-        while (true);
-    }
+    // if (WiFi.status() == WL_NO_MODULE) {
+    //     Serial.println("WiFi module not found!");
+    //     while (true);
+    // }
 
-    while (wifiStatus != WL_CONNECTED) {
-        Serial.print("Connecting to: ");
-        Serial.println(ssid);
-        wifiStatus = WiFi.begin(ssid, pass);
-        delay(10000);
-    }
+    // while (wifiStatus != WL_CONNECTED) {
+    //     Serial.print("Connecting to: ");
+    //     Serial.println(ssid);
+    //     wifiStatus = WiFi.begin(ssid, pass);
+    //     delay(10000);
+    // }
 
-    Serial.println("Connected to WiFi!");
-    Serial.print("IP Address: ");
-    Serial.println(WiFi.localIP());
+    // Serial.println("Connected to WiFi!");
+    // Serial.print("IP Address: ");
+    // Serial.println(WiFi.localIP());
 
-    server.begin();
-    Serial.println("TCP server started on port 3333");
+    // server.begin();
+    // Serial.println("TCP server started on port 3333");
     // ─────────────────────────────────────────────────────────────
 }
 
@@ -143,17 +153,17 @@ void loop() {
     unsigned long now = millis();
 
     // ── WiFi Reconnect ───────────────────────────────────────────
-    if (WiFi.status() != WL_CONNECTED) {
-        Serial.println("WiFi disconnected! Retrying...");
-        wifiStatus = WiFi.begin(ssid, pass);
-        delay(10000);
-        if (wifiStatus == WL_CONNECTED) {
-            Serial.println("Reconnected!");
-            Serial.print("IP Address: ");
-            Serial.println(WiFi.localIP());
-        }
-        return;
-    }
+    // if (WiFi.status() != WL_CONNECTED) {
+    //     Serial.println("WiFi disconnected! Retrying...");
+    //     wifiStatus = WiFi.begin(ssid, pass);
+    //     delay(10000);
+    //     if (wifiStatus == WL_CONNECTED) {
+    //         Serial.println("Reconnected!");
+    //         Serial.print("IP Address: ");
+    //         Serial.println(WiFi.localIP());
+    //     }
+    //     return;
+    // }
     // ─────────────────────────────────────────────────────────────
 
     // Read encoders
@@ -175,13 +185,14 @@ void loop() {
     static unsigned long lastUsReadTime = 0;
     if (now - lastUsReadTime >= 50) {
         float rawDistance = readUltrasonic();
-        if (rawDistance >= MIN_RANGE && rawDistance <= MAX_RANGE) {
-            usTotal -= usReadings[usReadIndex];
-            usReadings[usReadIndex] = rawDistance;
-            usTotal += usReadings[usReadIndex];
-            usReadIndex = (usReadIndex + 1) % US_NUM_READINGS;
-        }
+
+        float toAdd = (rawDistance >= MIN_RANGE && rawDistance <= MAX_RANGE) ? rawDistance : MAX_RANGE;
+        usTotal -= usReadings[usReadIndex];
+        usReadings[usReadIndex] = toAdd;
+        usTotal += usReadings[usReadIndex];
+        usReadIndex = (usReadIndex + 1) % US_NUM_READINGS;
         lastFilteredDistance = usTotal / US_NUM_READINGS;
+
         lastUsReadTime = now;
     }
 
@@ -261,9 +272,18 @@ void loop() {
             Serial.print(SET_POINT);
             Serial.println(" cm");
         }
+        else if (c == 'l') {
+            stop();
+            wallFollowMode = true;
+            autonomousMode = false;
+            followMode = false;
+            state = 0;
+            Serial.println("# WALL FOLLOW MODE STARTED");
+        }
         else if (c == 'e') {
             autonomousMode = false;
             followMode = false;
+            wallFollowMode = false;  
             state = 0;
             stop();
             Serial.println("# MANUAL MODE");
@@ -326,18 +346,45 @@ void loop() {
 
     // Follow-Me P-Controller
     if (followMode) {
-        lastError  = SET_POINT - lastFilteredDistance;
+        lastError  = lastFilteredDistance - SET_POINT;  // flipped: positive = too far
         lastOutput = Kp * lastError;
 
-        if (abs(lastError) < DEAD_ZONE) {
+        if (lastFilteredDistance > 40.0) {
+            // out of range, stop
             stop();
-        } else if (lastOutput > 0) {
+            Serial.println("# OUT OF RANGE");
+        } else if (abs(lastError) < DEAD_ZONE) {
+            // within 10cm of setpoint, chill
+            stop();
+        } else if (lastError > 0) {
+            // too far, speed up forward
             int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
             moveForwardPWM(pwm);
         } else {
+            // too close, back up
             int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
             moveBackwardPWM(pwm);
         }
+    }
+
+    if (wallFollowMode) {
+            if (lastFilteredDistance > 20.0) {
+            stop();
+        } else {
+            float error = WALL_SETPOINT - lastFilteredDistance;
+            float correction = constrain(Kp_wall * error, -15, 15);  // max 15 PWM difference
+
+            int leftSpeed  = constrain(BASE_SPEED + (int)correction, MIN_PWM, MAX_PWM);
+            int rightSpeed = constrain(BASE_SPEED - (int)correction, MIN_PWM, MAX_PWM);
+
+            digitalWrite(in1, LOW);
+            digitalWrite(in2, HIGH);
+            analogWrite(enA, leftSpeed);
+
+            digitalWrite(in3, LOW);
+            digitalWrite(in4, HIGH);
+            analogWrite(enB, rightSpeed);
+    }
     }
 
     // Telemetry
@@ -362,11 +409,14 @@ float readUltrasonic() {
     digitalWrite(trigPin, HIGH);
     delayMicroseconds(10);
     digitalWrite(trigPin, LOW);
-    delayMicroseconds(2);
 
-    long duration = pulseIn(echoPin, HIGH, 60000);
+    //long duration = pulseIn(echoPin, HIGH, 60000);
+
+    long duration = pulseIn(echoPin, HIGH, 30000);
+    // Serial.print("# RAW DURATION: ");
+    // Serial.println(duration);
+
     if (duration == 0 || duration < 150) return -1;
-
     float distance = (duration * 0.0343) / 2.0;
     if (distance < MIN_RANGE || distance > MAX_RANGE) return -1;
     return distance;
@@ -383,6 +433,32 @@ void executeCommand(char c) {
         case 'r': encoderACount = 0; encoderBCount = 0; break;
         case 'e': stop();             break;
     }
+}
+
+// ──────────────────── Motor Functions ────────────────────────────
+
+
+// Variable-speed functions (used by P-controller)
+void moveForwardPWM(int speed) {
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+    analogWrite(enA, speed);
+    
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+    analogWrite(enB, speed);
+
+}
+
+void moveBackwardPWM(int speed) {
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, speed);
+    
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, speed);
+
 }
 
 // ──────────────────── Calibration ────────────────────────────────
