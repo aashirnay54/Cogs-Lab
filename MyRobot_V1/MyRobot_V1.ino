@@ -369,7 +369,14 @@ void loop() {
 
     if (wallFollowMode) {
             if (lastFilteredDistance > 20.0) {
-            stop();
+            // wall gone, turn left to find it
+                digitalWrite(in1, LOW);
+                digitalWrite(in2, HIGH);
+                analogWrite(enA, BASE_SPEED - 30);   // left motor slower
+
+                digitalWrite(in3, LOW);
+                digitalWrite(in4, HIGH);
+                analogWrite(enB, BASE_SPEED - MOTOR_TRIM);  // right motor faster = turns left
         } else {
             float error = WALL_SETPOINT - lastFilteredDistance;
             float correction = constrain(Kp_wall * error, -15, 15);  // max 15 PWM difference
