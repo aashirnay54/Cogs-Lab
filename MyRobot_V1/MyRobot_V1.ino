@@ -92,14 +92,23 @@ float lastFilteredDistance = 0.0;
 float lastError = 0.0;
 float lastOutput = 0.0;
 
-// Wall-following 
+// Wall-following
 bool wallFollowMode = false;
 const float WALL_SETPOINT = 5.0;   // cm from wall
 const float Kp_wall = 1.0;          // tune this
 const int BASE_SPEED = 100;         // straight-line base PWM
 
-//fixing motor imbalance
+// fixing motor imbalance
 const int MOTOR_TRIM = 15;
+
+// IR sensors for tape detection (0 = on tape, 1 = off tape)
+const int irLeft   = A2;   // left IR sensor pin
+const int irRight  = A1;   // right IR sensor pin
+const int irMiddle = A3;   // center IR sensor — primary tape detector
+bool tapeFollowMode = false;
+char lastTurnDir = 'S';                       // S=straight, L=left, R=right — used to recover from dead zone
+unsigned long deadZoneStart = 0;              // when we first lost the tape
+const unsigned long TAPE_END_TIMEOUT = 500;   // ms in dead zone before assuming tape ended
 
 
 void setup() {
@@ -116,6 +125,11 @@ void setup() {
     pinMode(encB, INPUT_PULLUP);
     pinMode(trigPin, OUTPUT);
     pinMode(echoPin, INPUT);
+
+    // IR sensor pins
+    pinMode(irLeft,   INPUT);
+    pinMode(irRight,  INPUT);
+    pinMode(irMiddle, INPUT);
 
     lastEncAState = digitalRead(encA);
     lastEncBState = digitalRead(encB);
@@ -280,10 +294,22 @@ void loop() {
             state = 0;
             Serial.println("# WALL FOLLOW MODE STARTED");
         }
+        else if (c == 't') {
+            stop();
+            tapeFollowMode = true;
+            autonomousMode = false;
+            followMode = false;
+            wallFollowMode = false;
+            lastTurnDir = 'S';
+            deadZoneStart = 0;
+            state = 0;
+            Serial.println("# TAPE FOLLOW MODE STARTED");
+        }
         else if (c == 'e') {
             autonomousMode = false;
             followMode = false;
-            wallFollowMode = false;  
+            wallFollowMode = false;
+            tapeFollowMode = false;
             state = 0;
             stop();
             Serial.println("# MANUAL MODE");
@@ -368,15 +394,15 @@ void loop() {
     }
 
     if (wallFollowMode) {
-            if (lastFilteredDistance > 20.0) {
+        if (lastFilteredDistance > 20.0) {
             // wall gone, turn left to find it
-                digitalWrite(in1, LOW);
-                digitalWrite(in2, HIGH);
-                analogWrite(enA, BASE_SPEED - 30);   // left motor slower
+            digitalWrite(in1, LOW);
+            digitalWrite(in2, HIGH);
+            analogWrite(enA, BASE_SPEED - 30);   // left motor slower
 
-                digitalWrite(in3, LOW);
-                digitalWrite(in4, HIGH);
-                analogWrite(enB, BASE_SPEED - MOTOR_TRIM);  // right motor faster = turns left
+            digitalWrite(in3, LOW);
+            digitalWrite(in4, HIGH);
+            analogWrite(enB, BASE_SPEED - MOTOR_TRIM);  // right motor faster = turns left
         } else {
             float error = WALL_SETPOINT - lastFilteredDistance;
             float correction = constrain(Kp_wall * error, -15, 15);  // max 15 PWM difference
@@ -391,15 +417,79 @@ void loop() {
             digitalWrite(in3, LOW);
             digitalWrite(in4, HIGH);
             analogWrite(enB, rightSpeed);
+        }
     }
+
+// Tape follow mode (IR sensors: 0 = on tape, 1 = off tape)
+    // irLeft = A2, irMiddle = A3, irRight = A1
+    if (tapeFollowMode) {
+        int irL = digitalRead(irLeft);
+        int irM = digitalRead(irMiddle);
+        int irR = digitalRead(irRight);
+
+        Serial.print("# IR L: "); Serial.print(irL);
+        Serial.print(" | IR M: "); Serial.print(irM);
+        Serial.print(" | IR R: "); Serial.println(irR);
+
+        if (irM == 0 && irL == 1 && irR == 1) {
+            // only middle on tape — perfectly centered, full speed ahead
+            moveForward();
+            lastTurnDir = 'S';
+            deadZoneStart = 0;
+
+        } else if (irM == 0 && irL == 0) {
+            // middle + left on tape — drifting left, start turning left NOW before we lose it
+            turnLeftSlow();
+            lastTurnDir = 'L';
+            deadZoneStart = 0;
+
+        } else if (irM == 0 && irR == 0) {
+            // middle + right on tape — drifting right, start turning right NOW
+            turnRightSlow();
+            lastTurnDir = 'R';
+            deadZoneStart = 0;
+
+        } else if (irL == 0) {
+            // middle lost, only left sees tape — aggressive turn left
+            turnLeft();
+            lastTurnDir = 'L';
+            deadZoneStart = 0;
+
+        } else if (irR == 0) {
+            // middle lost, only right sees tape — aggressive turn right
+            turnRight();
+            lastTurnDir = 'R';
+            deadZoneStart = 0;
+
+        } else {
+            // all sensors off tape — dead zone or tape ended
+            if (deadZoneStart == 0) {
+                deadZoneStart = now;
+            }
+
+            if (now - deadZoneStart < TAPE_END_TIMEOUT) {
+                Serial.print("# DEAD ZONE - recovering: "); Serial.println(lastTurnDir);
+                if (lastTurnDir == 'L') {
+                    turnLeft();
+                } else if (lastTurnDir == 'R') {
+                    turnRight();
+                } else {
+                    moveForward();
+                }
+            } else {
+                tapeFollowMode = false;
+                stop();
+                Serial.println("# TAPE ENDED - stopping");
+            }
+        }
     }
 
     // Telemetry
     if (now - lastPrintTime >= PRINT_INTERVAL) {
-        Serial.print("Time: ");   Serial.print(now);
-        Serial.print(" | Cmd: "); Serial.print(currentCommand);
-        Serial.print(" | EncA: ");Serial.print(encoderACount);
-        Serial.print(" | EncB: ");Serial.print(encoderBCount);
+        Serial.print("Time: ");    Serial.print(now);
+        Serial.print(" | Cmd: ");  Serial.print(currentCommand);
+        Serial.print(" | EncA: "); Serial.print(encoderACount);
+        Serial.print(" | EncB: "); Serial.print(encoderBCount);
         Serial.print(" | Photo: ");Serial.print(photocellValue);
         Serial.print(" | State: ");Serial.print(state);
         Serial.print(" | Dist: "); Serial.print(lastFilteredDistance, 1);
@@ -440,32 +530,6 @@ void executeCommand(char c) {
         case 'r': encoderACount = 0; encoderBCount = 0; break;
         case 'e': stop();             break;
     }
-}
-
-// ──────────────────── Motor Functions ────────────────────────────
-
-
-// Variable-speed functions (used by P-controller)
-void moveForwardPWM(int speed) {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    analogWrite(enA, speed);
-    
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-    analogWrite(enB, speed);
-
-}
-
-void moveBackwardPWM(int speed) {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, speed);
-    
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, speed);
-
 }
 
 // ──────────────────── Calibration ────────────────────────────────

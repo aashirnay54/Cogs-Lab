@@ -94,3 +94,45 @@ void moveBackwardPWM(int speed) {
     digitalWrite(in4, LOW);
     analogWrite(enB, speed);
 }
+
+// Slow pivot for tape following — less overshoot on corners
+void turnLeftSlow() {
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 0);        // left motor coast
+
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+    analogWrite(enB, 150);      // right motor slow
+}
+
+void turnRightSlow() {
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+    analogWrite(enA, 150);      // left motor slow
+
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 0);        // right motor coast
+}
+
+// Aggressive pivot for sharp corners — both motors active, opposite directions
+void turnLeft() {
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 180);      // left motor backward
+
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, HIGH);
+    analogWrite(enB, 180);      // right motor forward
+}
+
+void turnRight() {
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, HIGH);
+    analogWrite(enA, 180);      // left motor forward
+
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 180);      // right motor backward
+}
