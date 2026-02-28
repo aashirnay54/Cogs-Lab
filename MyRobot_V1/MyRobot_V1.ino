@@ -24,9 +24,15 @@ const int in4 = 2;
 const int encA = 3;
 const int encB = 11;
 
-// Ultrasonic sensor pins
+// Ultrasonic sensor pins - Follow Me
 const int trigPin = 12;
 const int echoPin = 10;
+
+
+//Ultrasonic sensor pins - Wall Follow
+const int trigPin2 = 6;
+const int echoPin2 = A4; 
+
 
 // Photocell
 const int photocellPin = A0;
@@ -47,11 +53,18 @@ float usReadings[US_NUM_READINGS];
 int   usReadIndex  = 0;
 float usTotal      = 0.0;
 
+//moving average for side ultrasonic
+const int US2_NUM_READINGS = 10;
+float us2Readings[US2_NUM_READINGS];
+int   us2ReadIndex = 0;
+float us2Total     = 0.0;
+
+
 // P-Controller parameters
 const float SET_POINT = 10.0;
 const float Kp        = 3.0;
 const int   DEAD_ZONE = 3;
-const int   MIN_PWM   = 120;
+const int   MIN_PWM   = 150;
 const int   MAX_PWM   = 255;
 const float MAX_RANGE = 200.0;
 const float MIN_RANGE = 2.0;
@@ -88,7 +101,9 @@ int replayPos = 0;
 int prev = 0;
 
 // Follow mode telemetry
-float lastFilteredDistance = 0.0;
+float lastFilteredDistance  = 0.0;  // front
+float lastSideDistance      = 0.0;  // side
+
 float lastError = 0.0;
 float lastOutput = 0.0;
 
@@ -123,8 +138,12 @@ void setup() {
     pinMode(in4, OUTPUT);
     pinMode(encA, INPUT_PULLUP);
     pinMode(encB, INPUT_PULLUP);
+
     pinMode(trigPin, OUTPUT);
     pinMode(echoPin, INPUT);
+    pinMode(trigPin2, OUTPUT);
+    pinMode(echoPin2, INPUT);
+
 
     // IR sensor pins
     pinMode(irLeft,   INPUT);
@@ -138,6 +157,9 @@ void setup() {
 
     for (int i = 0; i < US_NUM_READINGS; i++) usReadings[i] = SET_POINT;
     usTotal = SET_POINT * US_NUM_READINGS;
+
+    for (int i = 0; i < US2_NUM_READINGS; i++) us2Readings[i] = WALL_SETPOINT;
+    us2Total = WALL_SETPOINT * US2_NUM_READINGS;
 
     Serial.println("time_ms,cmd,encA_count,encB_count,photocell,state,distance_cm,error,output");
 
@@ -198,14 +220,24 @@ void loop() {
     // Read ultrasonic every 50ms
     static unsigned long lastUsReadTime = 0;
     if (now - lastUsReadTime >= 50) {
-        float rawDistance = readUltrasonic();
+        float frontDistance = readUltrasonic(trigPin, echoPin);
+        float sideDistance  = readUltrasonic(trigPin2, echoPin2);
 
-        float toAdd = (rawDistance >= MIN_RANGE && rawDistance <= MAX_RANGE) ? rawDistance : MAX_RANGE;
+        // front filter (already exists)
+        float toAdd = (frontDistance >= MIN_RANGE && frontDistance <= MAX_RANGE) ? frontDistance : MAX_RANGE;
         usTotal -= usReadings[usReadIndex];
         usReadings[usReadIndex] = toAdd;
         usTotal += usReadings[usReadIndex];
         usReadIndex = (usReadIndex + 1) % US_NUM_READINGS;
         lastFilteredDistance = usTotal / US_NUM_READINGS;
+
+        // side filter (new)
+        float toAdd2 = (sideDistance >= MIN_RANGE && sideDistance <= MAX_RANGE) ? sideDistance : MAX_RANGE;
+        us2Total -= us2Readings[us2ReadIndex];
+        us2Readings[us2ReadIndex] = toAdd2;
+        us2Total += us2Readings[us2ReadIndex];
+        us2ReadIndex = (us2ReadIndex + 1) % US2_NUM_READINGS;
+        lastSideDistance = us2Total / US2_NUM_READINGS;
 
         lastUsReadTime = now;
     }
@@ -394,29 +426,47 @@ void loop() {
     }
 
     if (wallFollowMode) {
-        if (lastFilteredDistance > 20.0) {
-            // wall gone, turn left to find it
-            digitalWrite(in1, LOW);
-            digitalWrite(in2, HIGH);
-            analogWrite(enA, BASE_SPEED - 30);   // left motor slower
+        if (wallFollowMode) {
+            // Front wall detected — turn right to follow around the corner
+            if (lastFilteredDistance < 20.0) {
 
-            digitalWrite(in3, LOW);
-            digitalWrite(in4, HIGH);
-            analogWrite(enB, BASE_SPEED - MOTOR_TRIM);  // right motor faster = turns left
-        } else {
-            float error = WALL_SETPOINT - lastFilteredDistance;
-            float correction = constrain(Kp_wall * error, -15, 15);  // max 15 PWM difference
+                float turnBoost = map(lastFilteredDistance, 0, 30, 80, 0);  // 0cm = +80 boost, 30cm = no boost
+                int leftPWM = constrain(BASE_SPEED + (int)turnBoost, 0, MAX_PWM);
+    
+                digitalWrite(in1, LOW);
+                digitalWrite(in2, HIGH);
+                analogWrite(enA, leftPWM);   // left motor forward
 
-            int leftSpeed  = constrain(BASE_SPEED + (int)correction, MIN_PWM, MAX_PWM);
-            int rightSpeed = constrain(BASE_SPEED - (int)correction, MIN_PWM, MAX_PWM);
+                digitalWrite(in3, LOW);
+                digitalWrite(in4, LOW);
+                analogWrite(enB, 0);            // right motor stopped
+            }
+            // No wall on side — turn left to find it
+            else if (lastSideDistance > 20.0) {
+                digitalWrite(in1, LOW);
+                digitalWrite(in2, HIGH);
+                analogWrite(enA, BASE_SPEED - 30);
 
-            digitalWrite(in1, LOW);
-            digitalWrite(in2, HIGH);
-            analogWrite(enA, leftSpeed);
+                digitalWrite(in3, LOW);
+                digitalWrite(in4, HIGH);
+                analogWrite(enB, BASE_SPEED);
+            }
+            // Wall on side — P-controller to maintain distance
+            else {
+                float error      = WALL_SETPOINT - lastSideDistance;
+                float correction = constrain(Kp_wall * error, -15, 15);
 
-            digitalWrite(in3, LOW);
-            digitalWrite(in4, HIGH);
-            analogWrite(enB, rightSpeed);
+                int leftSpeed  = constrain(BASE_SPEED + (int)correction, MIN_PWM, MAX_PWM);
+                int rightSpeed = constrain(BASE_SPEED - (int)correction, MIN_PWM, MAX_PWM);
+
+                digitalWrite(in1, LOW);
+                digitalWrite(in2, HIGH);
+                analogWrite(enA, leftSpeed);
+
+                digitalWrite(in3, LOW);
+                digitalWrite(in4, HIGH);
+                analogWrite(enB, rightSpeed);
+            }
         }
     }
 
@@ -492,28 +542,29 @@ void loop() {
         Serial.print(" | EncB: "); Serial.print(encoderBCount);
         Serial.print(" | Photo: ");Serial.print(photocellValue);
         Serial.print(" | State: ");Serial.print(state);
-        Serial.print(" | Dist: "); Serial.print(lastFilteredDistance, 1);
-        Serial.print("cm | Err: ");Serial.print(lastError, 1);
+        Serial.print(" | Front: "); Serial.print(lastFilteredDistance, 1);
+        Serial.print("cm | Side: "); Serial.print(lastSideDistance, 1);
+        Serial.print("cm | Err: ");  Serial.print(lastError, 1);
         Serial.print(" | Out: ");  Serial.println(lastOutput, 1);
         lastPrintTime = now;
     }
 }
 
 // ──────────────────── Ultrasonic Sensor ──────────────────────────
-float readUltrasonic() {
-    digitalWrite(trigPin, LOW);
+float readUltrasonic(int trig, int echo) {
+    digitalWrite(trig, LOW);
     delayMicroseconds(2);
-    digitalWrite(trigPin, HIGH);
+    digitalWrite(trig, HIGH);
     delayMicroseconds(10);
-    digitalWrite(trigPin, LOW);
+    digitalWrite(trig, LOW);
 
     //long duration = pulseIn(echoPin, HIGH, 60000);
 
-    long duration = pulseIn(echoPin, HIGH, 30000);
+    long duration = pulseIn(echo, HIGH, 30000);
     // Serial.print("# RAW DURATION: ");
     // Serial.println(duration);
 
-    if (duration == 0 || duration < 150) return -1;
+    if (duration == 0) return -1;
     float distance = (duration * 0.0343) / 2.0;
     if (distance < MIN_RANGE || distance > MAX_RANGE) return -1;
     return distance;
