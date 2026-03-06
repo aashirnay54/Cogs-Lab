@@ -1,86 +1,60 @@
-// bug: not a persistent WiFi client (connection reset)
+// #include <WiFiS3.h>  // Commented out for Serial Monitor control
+#include <Servo.h>
 
-#include "WiFiS3.h"
-
-// ── WiFi credentials ──────────────────────────────────────────────
-char ssid[] = "Meli";
-char pass[] = "melmel12";
-int wifiStatus = WL_IDLE_STATUS;
-WiFiServer server(3333);
-WiFiClient persistentClient; // persistent — stays connected across loop iterations
-// ─────────────────────────────────────────────────────────────────
+// // ── Access Point credentials ──────────────────────────────────────
+// char ssid[] = "RobotAP";
+// char pass[] = "robot1234";
+// WiFiServer server(80);
+// // ─────────────────────────────────────────────────────────────────
 
 // Motor A pins
-const int enA = 9;
-const int in1 = 8;
-const int in2 = 7;
+const int enA = 11;  // PWM ~
+const int in1 = 13;
+const int in2 = 12;
 
 // Motor B pins
-const int enB = 5;
-const int in3 = 4;
-const int in4 = 2;
+const int enB =  9;  // PWM ~
+const int in3 =  8;
+const int in4 = 10;
 
-// Encoder pins
+// Encoder pins (interrupt-capable: 2, 3)
 const int encA = 3;
-const int encB = 11;
+const int encB = 2;
 
-// Ultrasonic sensor pins - Follow Me
-const int trigPin = 12;
-const int echoPin = 10;
+// Ultrasonic sensor pins
+const int trigPin = 6;
+const int echoPin = 7;
 
+// Servo for object detection
+Servo sonarServo;
+const int servoPin = A5;  // Using A5 for servo
 
-//Ultrasonic sensor pins - Wall Follow
-const int trigPin2 = 6;
-const int echoPin2 = A4; 
-
-
-// Photocell
-const int photocellPin = A0;
-int photocellValue = 0;
-int Lightthreshold = 140;
-int darkThreshold = 125;
-int hysteresis = 10;
-
-// Moving average filter for photocell
-const int NUM_READINGS = 10;
-int photocellReadings[NUM_READINGS];
-int readIndex = 0;
-long photocellTotal = 0;
+// IR sensors (0 = on tape, 1 = off tape)
+const int irLeft   = A2;
+const int irRight  = A1;
+const int irMiddle = A3;
 
 // Moving average filter for ultrasonic
-const int US_NUM_READINGS = 10;
+const int US_NUM_READINGS = 5;
 float usReadings[US_NUM_READINGS];
-int   usReadIndex  = 0;
-float usTotal      = 0.0;
-
-//moving average for side ultrasonic
-const int US2_NUM_READINGS = 10;
-float us2Readings[US2_NUM_READINGS];
-int   us2ReadIndex = 0;
-float us2Total     = 0.0;
-
+int   usReadIndex = 0;
+float usTotal     = 0.0;
 
 // P-Controller parameters
-const float SET_POINT = 10.0;
-const float Kp        = 3.0;
-const int   DEAD_ZONE = 3;
-const int   MIN_PWM   = 150;
+const float SET_POINT = 25.0;
+const float Kp        = 10.0;
+const int   DEAD_ZONE = 2;
+const int   MIN_PWM   = 60;
 const int   MAX_PWM   = 255;
 const float MAX_RANGE = 200.0;
 const float MIN_RANGE = 2.0;
 
-// Calibration
-int minReading = 1023;
-int maxReading = 0;
-
 // State
-int state = 0;
 bool autonomousMode = false;
-bool followMode = false;
-
-// Telemetry
-unsigned long lastPrintTime = 0;
-const int PRINT_INTERVAL = 1023;
+bool followMode     = false;
+bool tapeFollowMode = false;
+bool objectDetectMode = false;
+int state = 0;
 char currentCommand = 'e';
 
 // Encoder
@@ -91,116 +65,85 @@ int lastEncBState = 0;
 
 // Recording/Replay
 bool recording = false;
-bool replaying = false;
+bool replaying  = false;
 unsigned long recordStart = 0;
 unsigned long replayStart = 0;
-String recordedCommands = "";
+String recordedCommands   = "";
 int replayPos = 0;
 
-// Photocell edge detection
-int prev = 0;
-
 // Follow mode telemetry
-float lastFilteredDistance  = 0.0;  // front
-float lastSideDistance      = 0.0;  // side
-
-float lastError = 0.0;
+float lastFilteredDistance = 0.0;
+float lastError  = 0.0;
 float lastOutput = 0.0;
 
-// Wall-following
-bool wallFollowMode = false;
-const float WALL_SETPOINT = 5.0;   // cm from wall
-const float Kp_wall = 1.0;          // tune this
-const int BASE_SPEED = 100;         // straight-line base PWM
+// Tape follow
+char lastTurnDir = 'S';
+unsigned long deadZoneStart       = 0;
+const unsigned long TAPE_END_TIMEOUT = 500;
 
-// fixing motor imbalance
-const int MOTOR_TRIM = 15;
+// Object detection with depth map
+const int NUM_ANGLES = 9;                     // 0, 22.5, 45, 67.5, 90, 112.5, 135, 157.5, 180 degrees
+const int ANGLE_STEP = 180 / (NUM_ANGLES - 1); // 22.5 degrees
+float depthMap[NUM_ANGLES];                   // stores distance at each angle
+int angleMap[NUM_ANGLES];                     // stores the actual angles
+int targetAngle = 90;                         // angle to turn towards (0-180, 90 is center)
+float minObjectDistance = 200.0;              // for tracking closest object
+const float WALL_DISTANCE_THRESHOLD = 50.0;   // distances > this are likely the wall
+const float OBJECT_DETECTION_RANGE = 100.0;   // max range to consider for objects
 
-// IR sensors for tape detection (0 = on tape, 1 = off tape)
-const int irLeft   = A2;   // left IR sensor pin
-const int irRight  = A1;   // right IR sensor pin
-const int irMiddle = A3;   // center IR sensor — primary tape detector
-bool tapeFollowMode = false;
-char lastTurnDir = 'S';                       // S=straight, L=left, R=right — used to recover from dead zone
-unsigned long deadZoneStart = 0;              // when we first lost the tape
-const unsigned long TAPE_END_TIMEOUT = 500;   // ms in dead zone before assuming tape ended
-
+// Telemetry
+unsigned long lastPrintTime = 0;
+const int PRINT_INTERVAL    = 500;
 
 void setup() {
     Serial.begin(115200);
-    while (!Serial);
 
-    pinMode(enA, OUTPUT);
-    pinMode(in1, OUTPUT);
-    pinMode(in2, OUTPUT);
-    pinMode(enB, OUTPUT);
-    pinMode(in3, OUTPUT);
-    pinMode(in4, OUTPUT);
+    pinMode(enA, OUTPUT); pinMode(in1, OUTPUT); pinMode(in2, OUTPUT);
+    pinMode(enB, OUTPUT); pinMode(in3, OUTPUT); pinMode(in4, OUTPUT);
     pinMode(encA, INPUT_PULLUP);
     pinMode(encB, INPUT_PULLUP);
-
     pinMode(trigPin, OUTPUT);
     pinMode(echoPin, INPUT);
-    pinMode(trigPin2, OUTPUT);
-    pinMode(echoPin2, INPUT);
-
-
-    // IR sensor pins
     pinMode(irLeft,   INPUT);
     pinMode(irRight,  INPUT);
     pinMode(irMiddle, INPUT);
 
+    // Initialize servo for object detection
+    sonarServo.attach(servoPin, 500, 2400);
+    sonarServo.write(90);  // center position
+    delay(1000);
+
+    // Initialize angle map
+    for (int i = 0; i < NUM_ANGLES; i++) {
+        angleMap[i] = i * ANGLE_STEP;
+        depthMap[i] = 0.0;
+    }
+
     lastEncAState = digitalRead(encA);
     lastEncBState = digitalRead(encB);
-
-    for (int i = 0; i < NUM_READINGS; i++) photocellReadings[i] = 0;
 
     for (int i = 0; i < US_NUM_READINGS; i++) usReadings[i] = SET_POINT;
     usTotal = SET_POINT * US_NUM_READINGS;
 
-    for (int i = 0; i < US2_NUM_READINGS; i++) us2Readings[i] = WALL_SETPOINT;
-    us2Total = WALL_SETPOINT * US2_NUM_READINGS;
-
-    Serial.println("time_ms,cmd,encA_count,encB_count,photocell,state,distance_cm,error,output");
-
-    // ── WiFi Setup ───────────────────────────────────────────────
-    // if (WiFi.status() == WL_NO_MODULE) {
-    //     Serial.println("WiFi module not found!");
+    // // ── Access Point Setup ────────────────────────────────────────
+    // Serial.println("Creating Access Point...");
+    // if (WiFi.beginAP(ssid, pass) != WL_AP_LISTENING) {
+    //     Serial.println("AP failed!");
     //     while (true);
     // }
-
-    // while (wifiStatus != WL_CONNECTED) {
-    //     Serial.print("Connecting to: ");
-    //     Serial.println(ssid);
-    //     wifiStatus = WiFi.begin(ssid, pass);
-    //     delay(10000);
-    // }
-
-    // Serial.println("Connected to WiFi!");
-    // Serial.print("IP Address: ");
-    // Serial.println(WiFi.localIP());
-
+    // Serial.println("AP created!");
+    // Serial.print("SSID: "); Serial.println(ssid);
+    // Serial.print("IP:   "); Serial.println(WiFi.localIP());
     // server.begin();
-    // Serial.println("TCP server started on port 3333");
-    // ─────────────────────────────────────────────────────────────
+    // Serial.println("Server started on port 80");
+    // // ─────────────────────────────────────────────────────────────
+
+    Serial.println("# Serial Monitor Control Ready");
+    Serial.println("# Commands: o=object detect, v=test servo, f=follow, t=tape, e=stop, w/s/a/d=move");
 }
 
 void loop() {
     unsigned long now = millis();
-
-    // ── WiFi Reconnect ───────────────────────────────────────────
-    // if (WiFi.status() != WL_CONNECTED) {
-    //     Serial.println("WiFi disconnected! Retrying...");
-    //     wifiStatus = WiFi.begin(ssid, pass);
-    //     delay(10000);
-    //     if (wifiStatus == WL_CONNECTED) {
-    //         Serial.println("Reconnected!");
-    //         Serial.print("IP Address: ");
-    //         Serial.println(WiFi.localIP());
-    //     }
-    //     return;
-    // }
-    // ─────────────────────────────────────────────────────────────
 
     // Read encoders
     int encAState = digitalRead(encA);
@@ -210,150 +153,133 @@ void loop() {
     lastEncAState = encAState;
     lastEncBState = encBState;
 
-    // Read photocell with moving average filter
-    photocellTotal -= photocellReadings[readIndex];
-    photocellReadings[readIndex] = analogRead(photocellPin);
-    photocellTotal += photocellReadings[readIndex];
-    readIndex = (readIndex + 1) % NUM_READINGS;
-    photocellValue = photocellTotal / NUM_READINGS;
-
     // Read ultrasonic every 50ms
     static unsigned long lastUsReadTime = 0;
     if (now - lastUsReadTime >= 50) {
-        float frontDistance = readUltrasonic(trigPin, echoPin);
-        float sideDistance  = readUltrasonic(trigPin2, echoPin2);
-
-        // front filter (already exists)
-        float toAdd = (frontDistance >= MIN_RANGE && frontDistance <= MAX_RANGE) ? frontDistance : MAX_RANGE;
-        usTotal -= usReadings[usReadIndex];
-        usReadings[usReadIndex] = toAdd;
-        usTotal += usReadings[usReadIndex];
-        usReadIndex = (usReadIndex + 1) % US_NUM_READINGS;
+        float rawDistance = readUltrasonic();
+        if (rawDistance >= MIN_RANGE && rawDistance <= MAX_RANGE) {
+            usTotal -= usReadings[usReadIndex];
+            usReadings[usReadIndex] = rawDistance;
+            usTotal += usReadings[usReadIndex];
+            usReadIndex = (usReadIndex + 1) % US_NUM_READINGS;
+        }
         lastFilteredDistance = usTotal / US_NUM_READINGS;
-
-        // side filter (new)
-        float toAdd2 = (sideDistance >= MIN_RANGE && sideDistance <= MAX_RANGE) ? sideDistance : MAX_RANGE;
-        us2Total -= us2Readings[us2ReadIndex];
-        us2Readings[us2ReadIndex] = toAdd2;
-        us2Total += us2Readings[us2ReadIndex];
-        us2ReadIndex = (us2ReadIndex + 1) % US2_NUM_READINGS;
-        lastSideDistance = us2Total / US2_NUM_READINGS;
-
         lastUsReadTime = now;
     }
 
-    // ── Accept new client only if we don't have one ───────────────
-    if (!persistentClient || !persistentClient.connected()) {
-        persistentClient = server.available();
-        if (persistentClient) {
-            Serial.println("# Client connected");
-        }
-    }
+    // // ── Handle HTTP client ────────────────────────────────────────
+    // WiFiClient client = server.available();
+    // if (client) {
+    //     String request = client.readStringUntil('\r');
+    //     client.flush();
 
-    // ── Read command from persistent WiFi client OR Serial ────────
-    // Drain entire buffer, keep only the LAST real command character
-    // Skip \n \r and spaces so they don't overwrite the actual command
-    char c = 0;
-    if (persistentClient && persistentClient.connected() && persistentClient.available()) {
-        while (persistentClient.available()) {
-            char incoming = (char)persistentClient.read();
-            if (incoming != '\n' && incoming != '\r' && incoming != ' ') {
-                c = incoming;
+    //     char cmd = 0;
+    //     int slashIdx = request.indexOf('/');
+    //     if (slashIdx >= 0 && slashIdx + 1 < request.length()) {
+    //         cmd = request.charAt(slashIdx + 1);
+    //     }
+
+    //     client.println("HTTP/1.1 200 OK");
+    //     client.println("Content-Type: text/plain");
+    //     client.println("Connection: close");
+    //     client.println();
+    //     client.println("OK");
+    //     client.stop();
+
+    //     if (cmd != 0 && !replaying) {
+    //         currentCommand = cmd;
+
+    // ── Handle Serial commands ────────────────────────────────────
+    char cmd = 0;
+    if (Serial.available() && !replaying) {
+        cmd = Serial.read();
+        // Skip newlines and carriage returns
+        while (cmd == '\n' || cmd == '\r') {
+            if (Serial.available()) {
+                cmd = Serial.read();
+            } else {
+                cmd = 0;
+                break;
             }
         }
-    } else if (Serial.available()) {
-        while (Serial.available()) {
-            char incoming = (char)Serial.read();
-            if (incoming != '\n' && incoming != '\r' && incoming != ' ') {
-                c = incoming;
+
+        if (cmd != 0) {
+            currentCommand = cmd;
+
+            if (cmd == 'x') {
+                recording = true;
+                recordStart = now;
+                recordedCommands = "";
+                encoderACount = 0;
+                encoderBCount = 0;
+                Serial.println("# RECORDING STARTED");
+            }
+            else if (cmd == 'z') {
+                recording = false;
+                Serial.println("# RECORDING STOPPED");
+                Serial.print("# Commands: ");
+                Serial.println(recordedCommands);
+            }
+            else if (cmd == 'p') {
+                replaying = true;
+                replayStart = now;
+                replayPos = 0;
+                encoderACount = 0;
+                encoderBCount = 0;
+                Serial.println("# REPLAYING");
+            }
+            else if (cmd == 'v') {
+                stop();
+                Serial.println("# Testing servo...");
+                testServo();
+            }
+            else if (cmd == 'f') {
+                stop();
+                followMode = true;
+                autonomousMode = false;
+                tapeFollowMode = false;
+                objectDetectMode = false;
+                Serial.println("# FOLLOW MODE");
+            }
+            else if (cmd == 't') {
+                stop();
+                tapeFollowMode = true;
+                autonomousMode = false;
+                followMode = false;
+                objectDetectMode = false;
+                lastTurnDir = 'S';
+                deadZoneStart = 0;
+                Serial.println("# TAPE FOLLOW MODE");
+            }
+            else if (cmd == 'o') {
+                stop();
+                objectDetectMode = true;
+                autonomousMode = false;
+                followMode = false;
+                tapeFollowMode = false;
+                state = 0;
+                sonarServo.write(90);  // center servo
+                Serial.println("# OBJECT DETECTION MODE STARTED");
+            }
+            else if (cmd == 'e') {
+                autonomousMode = false;
+                followMode = false;
+                tapeFollowMode = false;
+                objectDetectMode = false;
+                state = 0;
+                stop();
+                Serial.println("# MANUAL MODE");
+            }
+            else if (!autonomousMode && !followMode && !tapeFollowMode && !objectDetectMode) {
+                executeCommand(cmd);
+                if (recording) {
+                    unsigned long elapsed = now - recordStart;
+                    recordedCommands += String(elapsed) + ":" + cmd + ",";
+                }
             }
         }
     }
-    // ─────────────────────────────────────────────────────────────
-
-    // Handle commands (only if not replaying)
-    if (c != 0 && !replaying) {
-        currentCommand = c;
-
-        if (c == 'x') {
-            recording = true;
-            recordStart = now;
-            recordedCommands = "";
-            encoderACount = 0;
-            encoderBCount = 0;
-            Serial.println("# RECORDING STARTED");
-        }
-        else if (c == 'z') {
-            recording = false;
-            Serial.println("# RECORDING STOPPED");
-            Serial.print("# Commands: ");
-            Serial.println(recordedCommands);
-        }
-        else if (c == 'p') {
-            replaying = true;
-            replayStart = now;
-            replayPos = 0;
-            encoderACount = 0;
-            encoderBCount = 0;
-            Serial.println("# REPLAYING");
-        }
-        else if (c == 'c') {
-            calibratePhotocell();
-        }
-        else if (c == 'm') {
-            stop();
-            autonomousMode = true;
-            followMode = false;
-            state = 0;
-            prev = photocellValue;
-            Serial.print("# AUTONOMOUS MODE STARTED - Initial photocell: ");
-            Serial.println(prev);
-        }
-        else if (c == 'f') {
-            stop();
-            followMode = true;
-            autonomousMode = false;
-            state = 0;
-            Serial.print("# FOLLOW MODE STARTED - Set point: ");
-            Serial.print(SET_POINT);
-            Serial.println(" cm");
-        }
-        else if (c == 'l') {
-            stop();
-            wallFollowMode = true;
-            autonomousMode = false;
-            followMode = false;
-            state = 0;
-            Serial.println("# WALL FOLLOW MODE STARTED");
-        }
-        else if (c == 't') {
-            stop();
-            tapeFollowMode = true;
-            autonomousMode = false;
-            followMode = false;
-            wallFollowMode = false;
-            lastTurnDir = 'S';
-            deadZoneStart = 0;
-            state = 0;
-            Serial.println("# TAPE FOLLOW MODE STARTED");
-        }
-        else if (c == 'e') {
-            autonomousMode = false;
-            followMode = false;
-            wallFollowMode = false;
-            tapeFollowMode = false;
-            state = 0;
-            stop();
-            Serial.println("# MANUAL MODE");
-        }
-        else if (!autonomousMode && !followMode) {
-            executeCommand(c);
-            if (recording) {
-                unsigned long elapsed = now - recordStart;
-                recordedCommands += String(elapsed) + ":" + c + ",";
-            }
-        }
-    }
+    // // ─────────────────────────────────────────────────────────────
 
     // Replay logic
     if (replaying) {
@@ -375,202 +301,304 @@ void loop() {
         }
     }
 
-    // Photocell edge detection
-    int diff = photocellValue - prev;
-
-    // Autonomous photocell behavior
-    if (autonomousMode) {
-        Serial.print("# State: "); Serial.print(state);
-        Serial.print(", Photo: "); Serial.print(photocellValue);
-        Serial.print(", Prev: ");  Serial.print(prev);
-        Serial.print(", Diff: ");  Serial.println(diff);
-
-        if (state == 0) {
-            if (diff >= 20) {
-                moveForward();
-                state = 1;
-                prev = photocellValue;
-                Serial.println("# TRIGGERED: light->dark, MOVING FORWARD");
-            }
-        } else if (state == 1) {
-            if (diff <= -20) {
-                stop();
-                state = 0;
-                prev = photocellValue;
-                Serial.println("# TRIGGERED: dark->light, STOPPING");
-            }
-        }
-    }
-
     // Follow-Me P-Controller
     if (followMode) {
-        lastError  = lastFilteredDistance - SET_POINT;  // flipped: positive = too far
+        lastError  = SET_POINT - lastFilteredDistance;
         lastOutput = Kp * lastError;
 
-        if (lastFilteredDistance > 40.0) {
-            // out of range, stop
+        if (abs(lastError) < DEAD_ZONE) {
             stop();
-            Serial.println("# OUT OF RANGE");
-        } else if (abs(lastError) < DEAD_ZONE) {
-            // within 10cm of setpoint, chill
-            stop();
-        } else if (lastError > 0) {
-            // too far, speed up forward
+        } else if (lastOutput > 0) {
             int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
             moveForwardPWM(pwm);
         } else {
-            // too close, back up
             int pwm = constrain((int)abs(lastOutput), MIN_PWM, MAX_PWM);
             moveBackwardPWM(pwm);
         }
     }
 
-    if (wallFollowMode) {
-        if (wallFollowMode) {
-            // Front wall detected — turn right to follow around the corner
-            if (lastFilteredDistance < 20.0) {
-
-                float turnBoost = map(lastFilteredDistance, 0, 30, 80, 0);  // 0cm = +80 boost, 30cm = no boost
-                int leftPWM = constrain(BASE_SPEED + (int)turnBoost, 0, MAX_PWM);
-    
-                digitalWrite(in1, LOW);
-                digitalWrite(in2, HIGH);
-                analogWrite(enA, leftPWM);   // left motor forward
-
-                digitalWrite(in3, LOW);
-                digitalWrite(in4, LOW);
-                analogWrite(enB, 0);            // right motor stopped
+    // Object detection mode
+    if (objectDetectMode) {
+        if (state == 0) {
+            // State 0: Perform sweep
+            Serial.println("# STATE 0: Performing sweep");
+            stop();
+            performSweep();
+            state = 1;
+        }
+        else if (state == 1) {
+            // State 1: Analyze and detect object
+            Serial.println("# STATE 1: Analyzing depth map");
+            int objectIdx = detectObject();
+            if (objectIdx >= 0) {
+                Serial.println("# STATE 1 -> 2: Object found! Turning towards it");
+                state = 2;  // object found, proceed to turn
+            } else {
+                // No object detected - turn right to explore and scan again
+                Serial.println("# STATE 1 -> 0: No object found - rotating right to explore");
+                turnRightSlow();  // Use slow turn
+                delay(200);  // Reduced from 300ms - slower rotation
+                stop();
+                delay(500);
+                state = 0;  // scan again from new position
             }
-            // No wall on side — turn left to find it
-            else if (lastSideDistance > 20.0) {
-                digitalWrite(in1, LOW);
-                digitalWrite(in2, HIGH);
-                analogWrite(enA, BASE_SPEED - 30);
+        }
+        else if (state == 2) {
+            // State 2: Turn towards object
+            Serial.println("# STATE 2: Turning towards object");
+            int turnDir = calculateTurnDirection();
 
-                digitalWrite(in3, LOW);
-                digitalWrite(in4, HIGH);
-                analogWrite(enB, BASE_SPEED);
+            if (abs(turnDir) < 15) {
+                // Close enough to center, move forward
+                Serial.println("# STATE 2 -> 3: Aligned! Moving forward");
+                state = 3;
+            } else if (turnDir > 0) {
+                // Turn left slowly
+                Serial.print("# Turning LEFT ");
+                Serial.print(turnDir);
+                Serial.println(" degrees");
+                turnLeftSlow();  // Use slow turn
+                delay(abs(turnDir) * 8);  // Reduced multiplier for slower turn
+                stop();
+                delay(500);
+            } else {
+                // Turn right slowly
+                Serial.print("# Turning RIGHT ");
+                Serial.print(abs(turnDir));
+                Serial.println(" degrees");
+                turnRightSlow();  // Use slow turn
+                delay(abs(turnDir) * 8);  // Reduced multiplier for slower turn
+                stop();
+                delay(500);
             }
-            // Wall on side — P-controller to maintain distance
-            else {
-                float error      = WALL_SETPOINT - lastSideDistance;
-                float correction = constrain(Kp_wall * error, -15, 15);
 
-                int leftSpeed  = constrain(BASE_SPEED + (int)correction, MIN_PWM, MAX_PWM);
-                int rightSpeed = constrain(BASE_SPEED - (int)correction, MIN_PWM, MAX_PWM);
+            if (abs(turnDir) < 15) {
+                state = 3;  // aligned, move forward
+            } else {
+                state = 0;  // verify alignment with new sweep
+            }
+        }
+        else if (state == 3) {
+            // State 3: Move towards object
+            Serial.print("# STATE 3: Distance to object: ");
+            Serial.print(minObjectDistance);
+            Serial.println(" cm");
 
-                digitalWrite(in1, LOW);
-                digitalWrite(in2, HIGH);
-                analogWrite(enA, leftSpeed);
-
-                digitalWrite(in3, LOW);
-                digitalWrite(in4, HIGH);
-                analogWrite(enB, rightSpeed);
+            if (minObjectDistance > 15.0) {
+                Serial.println("# MOVING FORWARD towards object!");
+                moveForward();
+                delay(500);  // move for a bit
+                stop();
+                delay(200);
+                Serial.println("# Stopped. Rescanning to verify position...");
+                state = 0;  // sweep again to recheck position
+            } else {
+                // Reached object!
+                stop();
+                Serial.println("# ========================================");
+                Serial.println("# OBJECT REACHED! Mission complete!");
+                Serial.println("# ========================================");
+                objectDetectMode = false;  // mission complete
             }
         }
     }
 
-// Tape follow mode (IR sensors: 0 = on tape, 1 = off tape)
-    // irLeft = A2, irMiddle = A3, irRight = A1
+    // Tape follow mode
     if (tapeFollowMode) {
         int irL = digitalRead(irLeft);
         int irM = digitalRead(irMiddle);
         int irR = digitalRead(irRight);
 
-        Serial.print("# IR L: "); Serial.print(irL);
-        Serial.print(" | IR M: "); Serial.print(irM);
-        Serial.print(" | IR R: "); Serial.println(irR);
-
         if (irM == 0 && irL == 1 && irR == 1) {
-            // only middle on tape — perfectly centered, full speed ahead
             moveForward();
             lastTurnDir = 'S';
             deadZoneStart = 0;
-
         } else if (irM == 0 && irL == 0) {
-            // middle + left on tape — drifting left, start turning left NOW before we lose it
             turnLeftSlow();
             lastTurnDir = 'L';
             deadZoneStart = 0;
-
         } else if (irM == 0 && irR == 0) {
-            // middle + right on tape — drifting right, start turning right NOW
             turnRightSlow();
             lastTurnDir = 'R';
             deadZoneStart = 0;
-
         } else if (irL == 0) {
-            // middle lost, only left sees tape — aggressive turn left
             turnLeft();
             lastTurnDir = 'L';
             deadZoneStart = 0;
-
         } else if (irR == 0) {
-            // middle lost, only right sees tape — aggressive turn right
             turnRight();
             lastTurnDir = 'R';
             deadZoneStart = 0;
-
         } else {
-            // all sensors off tape — dead zone or tape ended
-            if (deadZoneStart == 0) {
-                deadZoneStart = now;
-            }
-
+            if (deadZoneStart == 0) deadZoneStart = now;
             if (now - deadZoneStart < TAPE_END_TIMEOUT) {
-                Serial.print("# DEAD ZONE - recovering: "); Serial.println(lastTurnDir);
-                if (lastTurnDir == 'L') {
-                    turnLeft();
-                } else if (lastTurnDir == 'R') {
-                    turnRight();
-                } else {
-                    moveForward();
-                }
+                if      (lastTurnDir == 'L') turnLeft();
+                else if (lastTurnDir == 'R') turnRight();
+                else                         moveForward();
             } else {
                 tapeFollowMode = false;
                 stop();
-                Serial.println("# TAPE ENDED - stopping");
+                Serial.println("# TAPE ENDED");
             }
         }
     }
 
     // Telemetry
     if (now - lastPrintTime >= PRINT_INTERVAL) {
-        Serial.print("Time: ");    Serial.print(now);
-        Serial.print(" | Cmd: ");  Serial.print(currentCommand);
-        Serial.print(" | EncA: "); Serial.print(encoderACount);
-        Serial.print(" | EncB: "); Serial.print(encoderBCount);
-        Serial.print(" | Photo: ");Serial.print(photocellValue);
-        Serial.print(" | State: ");Serial.print(state);
-        Serial.print(" | Front: "); Serial.print(lastFilteredDistance, 1);
-        Serial.print("cm | Side: "); Serial.print(lastSideDistance, 1);
-        Serial.print("cm | Err: ");  Serial.print(lastError, 1);
-        Serial.print(" | Out: ");  Serial.println(lastOutput, 1);
+        Serial.print("Cmd: ");    Serial.print(currentCommand);
+        Serial.print(" | EncA: ");Serial.print(encoderACount);
+        Serial.print(" | EncB: ");Serial.print(encoderBCount);
+        Serial.print(" | Dist: ");Serial.print(lastFilteredDistance, 1);
+        Serial.print("cm | Err: ");Serial.print(lastError, 1);
+        Serial.print(" | Out: "); Serial.println(lastOutput, 1);
         lastPrintTime = now;
     }
 }
 
-// ──────────────────── Ultrasonic Sensor ──────────────────────────
-float readUltrasonic(int trig, int echo) {
-    digitalWrite(trig, LOW);
-    delayMicroseconds(2);
-    digitalWrite(trig, HIGH);
-    delayMicroseconds(10);
-    digitalWrite(trig, LOW);
-
-    //long duration = pulseIn(echoPin, HIGH, 60000);
-
-    long duration = pulseIn(echo, HIGH, 30000);
-    // Serial.print("# RAW DURATION: ");
-    // Serial.println(duration);
-
-    if (duration == 0) return -1;
+// ──────────────────── Ultrasonic ─────────────────────────────────
+float readUltrasonic() {
+    digitalWrite(trigPin, LOW);  delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH); delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);  delayMicroseconds(2);
+    long duration = pulseIn(echoPin, HIGH, 11600);
+    if (duration == 0 || duration < 150) return -1;
     float distance = (duration * 0.0343) / 2.0;
     if (distance < MIN_RANGE || distance > MAX_RANGE) return -1;
     return distance;
 }
 
-// ──────────────────── Command Execution ──────────────────────────
+// ──────────────────── Object Detection ───────────────────────────
+// Test servo full range of motion
+void testServo() {
+    Serial.println("# Testing servo range...");
+
+    Serial.println("# Moving to 0 degrees (full right)");
+    sonarServo.write(0);
+    delay(2000);
+
+    Serial.println("# Moving to 45 degrees");
+    sonarServo.write(45);
+    delay(2000);
+
+    Serial.println("# Moving to 90 degrees (center)");
+    sonarServo.write(90);
+    delay(2000);
+
+    Serial.println("# Moving to 135 degrees");
+    sonarServo.write(135);
+    delay(2000);
+
+    Serial.println("# Moving to 180 degrees (full left)");
+    sonarServo.write(180);
+    delay(2000);
+
+    Serial.println("# Returning to center (90)");
+    sonarServo.write(90);
+    delay(2000);
+    Serial.println("# Servo test complete");
+}
+
+// Perform a 180-degree sweep and populate the depth map
+void performSweep() {
+    Serial.println("# Starting sweep...");
+
+    for (int i = 0; i < NUM_ANGLES; i++) {
+        int angle = angleMap[i];
+        sonarServo.write(angle);
+        delay(500);  // wait for servo to reach position
+
+        // Take multiple readings and average them for better accuracy
+        float sum = 0;
+        int validReadings = 0;
+        for (int j = 0; j < 3; j++) {
+            float dist = readUltrasonic();
+            if (dist > 0) {
+                sum += dist;
+                validReadings++;
+            }
+            delay(50);
+        }
+
+        if (validReadings > 0) {
+            depthMap[i] = sum / validReadings;
+        } else {
+            depthMap[i] = MAX_RANGE;  // no valid reading, assume max range
+        }
+
+        Serial.print("Angle: "); Serial.print(angle);
+        Serial.print("° | Distance: "); Serial.print(depthMap[i]);
+        Serial.println(" cm");
+    }
+
+    // Return servo to center
+    sonarServo.write(90);
+    delay(300);
+    Serial.println("# Sweep complete");
+}
+
+// Analyze depth map to find object (looks for closest point that's not the wall)
+int detectObject() {
+    minObjectDistance = MAX_RANGE;
+    int objectIndex = -1;
+
+    Serial.println("# Analyzing depth map...");
+
+    // Find the minimum distance (closest object)
+    for (int i = 0; i < NUM_ANGLES; i++) {
+        if (depthMap[i] < minObjectDistance && depthMap[i] > MIN_RANGE) {
+            minObjectDistance = depthMap[i];
+            objectIndex = i;
+        }
+    }
+
+    if (objectIndex == -1) {
+        Serial.println("# No object detected");
+        return -1;
+    }
+
+    // Check if this is a "bump" (object) vs linear wall
+    // Look for local minimum - object should be closer than neighbors
+    bool isObject = false;
+
+    if (objectIndex > 0 && objectIndex < NUM_ANGLES - 1) {
+        // Check if it's significantly closer than neighbors (bump detection)
+        float leftDist = depthMap[objectIndex - 1];
+        float rightDist = depthMap[objectIndex + 1];
+        float centerDist = depthMap[objectIndex];
+
+        // Object should be at least 10cm closer than average of neighbors
+        float avgNeighbor = (leftDist + rightDist) / 2.0;
+        if (avgNeighbor - centerDist > 10.0) {
+            isObject = true;
+        }
+    } else {
+        // Edge case - if at boundary and significantly closer than next point
+        isObject = true;
+    }
+
+    if (isObject && minObjectDistance < OBJECT_DETECTION_RANGE) {
+        targetAngle = angleMap[objectIndex];
+        Serial.print("# Object detected at angle: "); Serial.print(targetAngle);
+        Serial.print("°, distance: "); Serial.print(minObjectDistance);
+        Serial.println(" cm");
+        return objectIndex;
+    } else {
+        Serial.println("# No distinct object found (likely wall)");
+        return -1;
+    }
+}
+
+// Calculate how much to turn the robot to face the target angle
+// Servo angles: 0° = right, 90° = forward, 180° = left
+// Returns: negative = turn right, positive = turn left
+int calculateTurnDirection() {
+    int turnAmount = targetAngle - 90;  // 0 = no turn, + = left, - = right
+    Serial.print("# Turn amount: "); Serial.print(turnAmount);
+    Serial.println("°");
+    return turnAmount;
+}
+
+// ──────────────────── Commands ────────────────────────────────────
 void executeCommand(char c) {
     switch (c) {
         case 'w': moveForward();      break;
@@ -583,28 +611,111 @@ void executeCommand(char c) {
     }
 }
 
-// ──────────────────── Calibration ────────────────────────────────
-void calibratePhotocell() {
-    Serial.println("# Calibrating photocell...");
-    Serial.println("# Move robot over dark and light areas");
+// ──────────────────── Motor Control ──────────────────────────────
+// void stop() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 0);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 0);
+// }
 
-    minReading = 1023;
-    maxReading = 0;
+// void moveForward() {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 150);
+//     digitalWrite(in3, HIGH);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 150);
+// }
 
-    unsigned long startTime = millis();
-    while (millis() - startTime < 5000) {
-        int val = analogRead(photocellPin);
-        if (val < minReading) minReading = val;
-        if (val > maxReading) maxReading = val;
-        delay(50);
-    }
+// void moveForwardPWM(int pwm) {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, pwm);
+//     digitalWrite(in3, HIGH);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, pwm);
+// }
 
-    Lightthreshold = (minReading + maxReading) / 2;
-    hysteresis = (maxReading - minReading) / 10;
+// void moveBackward() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, HIGH);
+//     analogWrite(enA, 150);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, HIGH);
+//     analogWrite(enB, 150);
+// }
 
-    Serial.print("# Min: ");        Serial.print(minReading);
-    Serial.print(", Max: ");        Serial.print(maxReading);
-    Serial.print(", Threshold: ");  Serial.print(Lightthreshold);
-    Serial.print(", Hysteresis: "); Serial.println(hysteresis);
-    Serial.println("# Calibration complete");
-}
+// void moveBackwardPWM(int pwm) {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, HIGH);
+//     analogWrite(enA, pwm);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, HIGH);
+//     analogWrite(enB, pwm);
+// }
+
+// void moveLeft() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, HIGH);
+//     analogWrite(enA, 150);
+//     digitalWrite(in3, HIGH);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 150);
+// }
+
+// void moveRight() {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 150);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, HIGH);
+//     analogWrite(enB, 150);
+// }
+
+// void turnLeft() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, HIGH);
+//     analogWrite(enA, 150);
+//     digitalWrite(in3, HIGH);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 150);
+// }
+
+// void turnRight() {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 150);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, HIGH);
+//     analogWrite(enB, 150);
+// }
+
+// void turnLeftSlow() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, HIGH);
+//     analogWrite(enA, 100);
+//     digitalWrite(in3, HIGH);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 100);
+// }
+
+// void turnRightSlow() {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 100);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, HIGH);
+//     analogWrite(enB, 100);
+// }
+
+// void turnRobotInPlace() {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 150);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, HIGH);
+//     analogWrite(enB, 150);
+// }
