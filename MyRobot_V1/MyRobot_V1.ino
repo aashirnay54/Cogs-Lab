@@ -319,89 +319,107 @@ void loop() {
 
     // Object detection mode
     if (objectDetectMode) {
-        if (state == 0) {
-            // State 0: Perform sweep
-            Serial.println("# STATE 0: Performing sweep");
+
+    // ── State 0: Sweep ────────────────────────────────────────────
+    if (state == 0) {
+        Serial.println("# STATE 0: Performing sweep");
+        stop();
+        performSweep();
+        state = 1;
+    }
+
+    // ── State 1: Analyze depth map ────────────────────────────────
+    else if (state == 1) {
+        Serial.println("# STATE 1: Analyzing depth map");
+        int objectIdx = detectObject();
+        if (objectIdx >= 0) {
+            Serial.println("# Object found! Proceeding to turn");
+            state = 2;
+        } else {
+            Serial.println("# No object found — rotating to explore");
+            // Turn right in place (both motors active)
+            digitalWrite(in1, HIGH); digitalWrite(in2, LOW);  analogWrite(enA, 120);
+            digitalWrite(in3, LOW);  digitalWrite(in4, HIGH); analogWrite(enB, 120);
+            delay(300);
             stop();
-            performSweep();
-            state = 1;
-        }
-        else if (state == 1) {
-            // State 1: Analyze and detect object
-            Serial.println("# STATE 1: Analyzing depth map");
-            int objectIdx = detectObject();
-            if (objectIdx >= 0) {
-                Serial.println("# STATE 1 -> 2: Object found! Turning towards it");
-                state = 2;  // object found, proceed to turn
-            } else {
-                // No object detected - turn right to explore and scan again
-                Serial.println("# STATE 1 -> 0: No object found - rotating right to explore");
-                turnRightSlow();  // Use slow turn
-                delay(200);  // Reduced from 300ms - slower rotation
-                stop();
-                delay(500);
-                state = 0;  // scan again from new position
-            }
-        }
-        else if (state == 2) {
-            // State 2: Turn towards object
-            Serial.println("# STATE 2: Turning towards object");
-            int turnDir = calculateTurnDirection();
-
-            if (abs(turnDir) < 15) {
-                // Close enough to center, move forward
-                Serial.println("# STATE 2 -> 3: Aligned! Moving forward");
-                state = 3;
-            } else if (turnDir > 0) {
-                // Turn left slowly
-                Serial.print("# Turning LEFT ");
-                Serial.print(turnDir);
-                Serial.println(" degrees");
-                turnLeftSlow();  // Use slow turn
-                delay(abs(turnDir) * 8);  // Reduced multiplier for slower turn
-                stop();
-                delay(500);
-            } else {
-                // Turn right slowly
-                Serial.print("# Turning RIGHT ");
-                Serial.print(abs(turnDir));
-                Serial.println(" degrees");
-                turnRightSlow();  // Use slow turn
-                delay(abs(turnDir) * 8);  // Reduced multiplier for slower turn
-                stop();
-                delay(500);
-            }
-
-            if (abs(turnDir) < 15) {
-                state = 3;  // aligned, move forward
-            } else {
-                state = 0;  // verify alignment with new sweep
-            }
-        }
-        else if (state == 3) {
-            // State 3: Move towards object
-            Serial.print("# STATE 3: Distance to object: ");
-            Serial.print(minObjectDistance);
-            Serial.println(" cm");
-
-            if (minObjectDistance > 15.0) {
-                Serial.println("# MOVING FORWARD towards object!");
-                moveForward();
-                delay(500);  // move for a bit
-                stop();
-                delay(200);
-                Serial.println("# Stopped. Rescanning to verify position...");
-                state = 0;  // sweep again to recheck position
-            } else {
-                // Reached object!
-                stop();
-                Serial.println("# ========================================");
-                Serial.println("# OBJECT REACHED! Mission complete!");
-                Serial.println("# ========================================");
-                objectDetectMode = false;  // mission complete
-            }
+            delay(400);
+            state = 0;
         }
     }
+
+    // ── State 2: Turn to face object ──────────────────────────────
+    else if (state == 2) {
+        Serial.println("# STATE 2: Turning towards object");
+        int turnDir = calculateTurnDirection();  // +ve = left (servo>90°), -ve = right (servo<90°)
+
+        if (abs(turnDir) < 15) {
+            Serial.println("# Aligned — moving forward");
+            state = 3;
+        } else {
+            Serial.print("# Turning ");
+            Serial.print(turnDir > 0 ? "LEFT " : "RIGHT ");
+            Serial.print(abs(turnDir)); Serial.println("°");
+
+            if (turnDir > 0) {
+                // Object left of center — turn left in place
+                digitalWrite(in1, LOW);  digitalWrite(in2, HIGH); analogWrite(enA, 120);
+                digitalWrite(in3, HIGH); digitalWrite(in4, LOW);  analogWrite(enB, 120);
+            } else {
+                // Object right of center — turn right in place
+                digitalWrite(in1, HIGH); digitalWrite(in2, LOW);  analogWrite(enA, 120);
+                digitalWrite(in3, LOW);  digitalWrite(in4, HIGH); analogWrite(enB, 120);
+            }
+
+            delay(abs(turnDir) * 8);
+            stop();
+            delay(400);
+            state = 0;  // re-sweep to verify alignment
+        }
+    }
+
+    // ── State 3: Drive toward object ──────────────────────────────
+    else if (state == 3) {
+        // Center servo so sensor looks forward while driving
+        sonarServo.write(90);
+        delay(300);
+
+        float liveDist = lastFilteredDistance;
+
+        Serial.print("# STATE 3: Live distance = ");
+        Serial.print(liveDist, 1); Serial.println(" cm");
+
+        if (liveDist > 0 && liveDist <= 15.0) {
+            // Reached the object
+            stop();
+            Serial.println("# ========================================");
+            Serial.println("# OBJECT REACHED! Mission complete!");
+            Serial.println("# ========================================");
+            objectDetectMode = false;
+
+        } else if (liveDist > 15.0 && liveDist <= 40.0) {
+            // Close — creep forward then re-scan to stay aligned
+            moveForwardPWM(100);
+            delay(300);
+            stop();
+            delay(200);
+            state = 0;
+
+        } else if (liveDist > 40.0) {
+            // Far — drive confidently then re-scan
+            moveForwardPWM(180);
+            delay(600);
+            stop();
+            delay(200);
+            state = 0;
+
+        } else {
+            // No valid reading — re-scan
+            stop();
+            Serial.println("# No valid distance — re-scanning");
+            state = 0;
+        }
+    }
+}
 
     // Tape follow mode
     if (tapeFollowMode) {
