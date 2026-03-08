@@ -20,31 +20,31 @@ void stop() {
     analogWrite(enB, 0);
 }
 
-void moveForward() {
+void moveBackward() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    analogWrite(enA, 255);  // Left motor — max, it needs it due to stiffer gearbox
+    analogWrite(enA, 100);  // Left motor — max, it needs it due to stiffer gearbox
 
     digitalWrite(in3, LOW);
     digitalWrite(in4, HIGH);
-    analogWrite(enB, 230);  // Right motor — tuned to match left encoder counts
+    analogWrite(enB, 80);  // Right motor — tuned to match left encoder counts
 }
 
-void moveBackward() {
+void moveForward() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 255);
+    analogWrite(enA, 100);
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 230);
+    analogWrite(enB, 80);
 }
 
-void moveRight() {
+void moveLeft() {
     // Left motor drives forward
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    analogWrite(enA, 255);
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 100);
 
     // Right motor coasts — both pins LOW avoids stall hum
     digitalWrite(in3, LOW);
@@ -52,30 +52,30 @@ void moveRight() {
     analogWrite(enB, 0);
 }
 
-void moveLeft() {
+void moveRight() {
     // Left motor coasts — both pins LOW avoids stall hum
     digitalWrite(in1, LOW);
     digitalWrite(in2, LOW);
     analogWrite(enA, 0);
 
     // Right motor drives forward
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-    analogWrite(enB, 255);
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 100);
 }
 
 void turnRobotInPlace() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    analogWrite(enA, 255);
+    analogWrite(enA, 155);
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 255);
+    analogWrite(enB, 155);
 }
 
 // Variable-speed versions used by the P-controller (Follow Me mode)
-void moveForwardPWM(int speed) {
+void moveBackwardPWM(int speed) {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
     analogWrite(enA, speed);
@@ -85,7 +85,7 @@ void moveForwardPWM(int speed) {
     analogWrite(enB, speed);
 }
 
-void moveBackwardPWM(int speed) {
+void moveForwardPWM(int speed) {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
     analogWrite(enA, speed);
@@ -96,20 +96,20 @@ void moveBackwardPWM(int speed) {
 }
 
 // Slow pivot for tape following — less overshoot on corners
-void turnLeftSlow() {
+void turnRightSlow() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, LOW);
     analogWrite(enA, 0);        // left motor coast
 
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-    analogWrite(enB, 150);      // right motor slow
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 70);      // right motor slow
 }
 
-void turnRightSlow() {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    analogWrite(enA, 150);      // left motor slow
+void turnLeftSlow() {
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 55);      // left motor slow
 
     digitalWrite(in3, LOW);
     digitalWrite(in4, LOW);
@@ -117,22 +117,22 @@ void turnRightSlow() {
 }
 
 // Aggressive pivot for sharp corners — both motors active, opposite directions
-void turnLeft() {
+void turnRight() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 180);      // left motor backward
+    analogWrite(enA, 80);      // left motor backward
 
     digitalWrite(in3, LOW);
     digitalWrite(in4, HIGH);
-    analogWrite(enB, 180);      // right motor forward
+    analogWrite(enB, 80);      // right motor forward
 }
 
-void turnRight() {
+void turnLeft() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    analogWrite(enA, 180);      // left motor forward
+    analogWrite(enA, 80);      // left motor forward
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 180);      // right motor backward
+    analogWrite(enB, 80);      // right motor backward
 }
