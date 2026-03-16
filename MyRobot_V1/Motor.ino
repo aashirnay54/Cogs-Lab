@@ -5,6 +5,10 @@
  * @date 2026
  */
 
+// Motor trim — reduce right motor to compensate for it being faster
+const int LEFT_PWM_TRIM  = 0;
+const int RIGHT_PWM_TRIM = 30;  // tune this until robot drives straight
+
 void drive() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
@@ -20,77 +24,119 @@ void stop() {
     analogWrite(enB, 0);
 }
 
-void moveForward() {
+void moveBackward() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    analogWrite(enA, 255);  // Left motor — max, it needs it due to stiffer gearbox
+    analogWrite(enA, 57);
 
     digitalWrite(in3, LOW);
     digitalWrite(in4, HIGH);
-    analogWrite(enB, 230);  // Right motor — tuned to match left encoder counts
+    analogWrite(enB, 77);
 }
 
-void moveBackward() {
+void moveForward() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 255);
+    analogWrite(enA, 57);
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 230);
+    analogWrite(enB, 77);
 }
 
-void moveRight() {
-    // Left motor drives forward
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    analogWrite(enA, 255);
+void moveLeft() {
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 55);
 
-    // Right motor coasts — both pins LOW avoids stall hum
     digitalWrite(in3, LOW);
     digitalWrite(in4, LOW);
     analogWrite(enB, 0);
 }
 
-void moveLeft() {
-    // Left motor coasts — both pins LOW avoids stall hum
+void moveRight() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, LOW);
     analogWrite(enA, 0);
 
-    // Right motor drives forward
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-    analogWrite(enB, 255);
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 76);
 }
 
 void turnRobotInPlace() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    analogWrite(enA, 255);
+    analogWrite(enA, 55);
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 255);
+    analogWrite(enB, 76);
 }
 
 // Variable-speed versions used by the P-controller (Follow Me mode)
-void moveForwardPWM(int speed) {
+void moveBackwardPWM(int speed) {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    analogWrite(enA, speed);
+    analogWrite(enA, speed - RIGHT_PWM_TRIM);
 
     digitalWrite(in3, LOW);
     digitalWrite(in4, HIGH);
     analogWrite(enB, speed);
 }
 
-void moveBackwardPWM(int speed) {
+void moveForwardPWM(int speed) {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, speed);
+    analogWrite(enA, speed - RIGHT_PWM_TRIM);
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
     analogWrite(enB, speed);
+}
+
+// Gentle correction — one motor coasts
+void turnRightSlow() {
+    // Left motor only — right coasts
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 70);
+
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 0);
+}
+
+void turnLeftSlow() {
+    // Right motor only — left coasts
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 0);
+
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 80);
+}
+
+// Aggressive correction — one motor at full, other coasts
+void turnRight() {
+    // Left motor only — right coasts
+    digitalWrite(in1, HIGH);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 70);
+
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 0);
+}
+
+void turnLeft() {
+    // Right motor only — left coasts
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);
+    analogWrite(enA, 0);
+
+    digitalWrite(in3, HIGH);
+    digitalWrite(in4, LOW);
+    analogWrite(enB, 80);
 }
