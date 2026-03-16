@@ -409,56 +409,84 @@ void loop() {
         int irM = digitalRead(irMiddle);
         int irR = digitalRead(irRight);
 
-        Serial.print("# IR L: "); Serial.print(irL);
-        Serial.print(" | IR M: "); Serial.print(irM);
-        Serial.print(" | IR R: "); Serial.println(irR);
+        // Debug output only every 200ms to avoid slowing down the loop
+        static unsigned long lastIRPrint = 0;
+        if (now - lastIRPrint >= 200) {
+            Serial.print("# IR L: "); Serial.print(irL);
+            Serial.print(" | IR M: "); Serial.print(irM);
+            Serial.print(" | IR R: "); Serial.println(irR);
+            lastIRPrint = now;
+        }
 
-        if (irM == 0 && irL == 1 && irR == 1) {
-            // only middle on tape — perfectly centered, full speed ahead
+        if (irM == 0 && irL == 0 && irR == 0) {
+            // All three sensors on tape (wide tape or intersection) - go straight
             moveForward();
             lastTurnDir = 'S';
             deadZoneStart = 0;
 
-        } else if (irM == 0 && irL == 0) {
-            // middle + left on tape — drifting left, start turning left NOW before we lose it
+        } else if (irM == 0 && irL == 1 && irR == 1) {
+            // Only middle on tape - perfectly centered, full speed ahead
+            moveForward();
+            lastTurnDir = 'S';
+            deadZoneStart = 0;
+
+        } else if (irM == 0 && irL == 0 && irR == 1) {
+            // Middle + left on tape - robot drifted RIGHT, turn left to correct
             turnLeftSlow();
             lastTurnDir = 'L';
             deadZoneStart = 0;
 
-        } else if (irM == 0 && irR == 0) {
-            // middle + right on tape — drifting right, start turning right NOW
+        } else if (irM == 0 && irR == 0 && irL == 1) {
+            // Middle + right on tape - robot drifted LEFT, turn right to correct
             turnRightSlow();
             lastTurnDir = 'R';
             deadZoneStart = 0;
 
-        } else if (irL == 0) {
-            // middle lost, only left sees tape — aggressive turn left
+        } else if (irL == 0 && irM == 1 && irR == 1) {
+            // Only left sees tape - robot drifted far RIGHT, aggressive turn left
             turnLeft();
             lastTurnDir = 'L';
             deadZoneStart = 0;
 
-        } else if (irR == 0) {
-            // middle lost, only right sees tape — aggressive turn right
+        } else if (irR == 0 && irM == 1 && irL == 1) {
+            // Only right sees tape - robot drifted far LEFT, aggressive turn right
             turnRight();
             lastTurnDir = 'R';
             deadZoneStart = 0;
 
         } else {
-            // all sensors off tape — dead zone or tape ended
+            // All sensors off tape - dead zone or tape ended
             if (deadZoneStart == 0) {
                 deadZoneStart = now;
             }
 
-            if (now - deadZoneStart < TAPE_END_TIMEOUT) {
-                Serial.print("# DEAD ZONE - recovering: "); Serial.println(lastTurnDir);
+            unsigned long deadZoneElapsed = now - deadZoneStart;
+
+            if (deadZoneElapsed < TAPE_END_TIMEOUT) {
+                // First phase: turn slowly in last known direction
+                Serial.print("# DEAD ZONE - recovering slow: "); Serial.println(lastTurnDir);
                 if (lastTurnDir == 'L') {
-                    turnLeft();
+                    turnLeftSlow();  // Use slow turn instead of aggressive
                 } else if (lastTurnDir == 'R') {
-                    turnRight();
+                    turnRightSlow();  // Use slow turn instead of aggressive
                 } else {
                     moveForward();
                 }
+            } else if (deadZoneElapsed < TAPE_END_TIMEOUT * 2) {
+                // Second phase: try opposite direction
+                Serial.print("# DEAD ZONE - trying opposite: ");
+                if (lastTurnDir == 'L') {
+                    Serial.println("R");
+                    turnRightSlow();
+                } else if (lastTurnDir == 'R') {
+                    Serial.println("L");
+                    turnLeftSlow();
+                } else {
+                    Serial.println("backward");
+                    moveBackward();
+                }
             } else {
+                // Give up after trying both directions
                 tapeFollowMode = false;
                 stop();
                 Serial.println("# TAPE ENDED - stopping");
