@@ -152,10 +152,14 @@ void loop() {
         }
         else if (irL == 0 && irM == 0 && irR == 0) {
             // All on tape - go straight
-            moveForward();
+            turnRight();
         }
+        
+        
         else {
-            // Off tape - stop
+            // Off tape - move backward a tiny bit then stop
+            moveBackward();
+            delay(250);  // Small backward movement
             stop();
         }
     }
@@ -165,67 +169,86 @@ void loop() {
 // MOTOR FUNCTIONS - From Motor.ino
 // ============================================
 
-void stop() {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, 0);
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, 0);
-}
+// void stop() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 0);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 0);
+// }
 
-void moveForward() {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, 57);
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, 77);
-}
+// void moveForward() {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 57);
+//     digitalWrite(in3, HIGH);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 77);
+// }
 
-void moveBackward() {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, HIGH);
-    analogWrite(enA, 57);
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, HIGH);
-    analogWrite(enB, 77);
-}
+// void moveBackward() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, HIGH);
+//     analogWrite(enA, 57);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, HIGH);
+//     analogWrite(enB, 77);
+// }
 
-// Gentle correction (SWAPPED)
-void turnLeftSlow() {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, 70);
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, 0);
-}
+// // Gentle correction (SWAPPED)
+// void turnLeftSlow() {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 70);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 0);
+// }
 
-void turnRightSlow() {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, 0);
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, 80);
-}
+// void turnRightSlow() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 0);
+//     digitalWrite(in3, HIGH);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 80);
+// }
 
-// Aggressive correction (SWAPPED)
-void turnLeft() {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, 70);
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, 0);
-}
+// // Aggressive correction (SWAPPED)
+// void turnLeft() {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 70);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 0);
+// }
 
-void turnRight() {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, 0);
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, 80);
-}
+// void turnRight() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 0);
+//     digitalWrite(in3, HIGH);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 80);
+// }
+
+// void turnRightShimmy() {
+//     digitalWrite(in1, LOW);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 0);
+//     digitalWrite(in3, HIGH);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 57);
+// }
+
+// void turnLeftShimmy() {
+//     digitalWrite(in1, HIGH);
+//     digitalWrite(in2, LOW);
+//     analogWrite(enA, 60);
+//     digitalWrite(in3, LOW);
+//     digitalWrite(in4, LOW);
+//     analogWrite(enB, 0);
+
+// }
