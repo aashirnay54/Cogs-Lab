@@ -403,7 +403,7 @@ void loop() {
         }
     }
 
-    // Tape follow mode
+    // Tape follow mode (updated from LineFollowDebug)
     if (tapeFollowMode) {
         int irL = digitalRead(irLeft);
         int irM = digitalRead(irMiddle);
@@ -418,79 +418,35 @@ void loop() {
             lastIRPrint = now;
         }
 
-        if (irM == 0 && irL == 0 && irR == 0) {
-            // All three sensors on tape (wide tape or intersection) - go straight
+        if (irM == 0 && irL == 1 && irR == 1) {
+            // Centered - go straight
             moveForward();
-            lastTurnDir = 'S';
-            deadZoneStart = 0;
-
-        } else if (irM == 0 && irL == 1 && irR == 1) {
-            // Only middle on tape - perfectly centered, full speed ahead
-            moveForward();
-            lastTurnDir = 'S';
-            deadZoneStart = 0;
-
-        } else if (irM == 0 && irL == 0 && irR == 1) {
-            // Middle + left on tape - robot drifted RIGHT, turn left to correct
+        }
+        else if (irM == 0 && irL == 0 && irR == 1) {
+            // Drifted right, turn left
             turnLeftSlow();
-            lastTurnDir = 'L';
-            deadZoneStart = 0;
-
-        } else if (irM == 0 && irR == 0 && irL == 1) {
-            // Middle + right on tape - robot drifted LEFT, turn right to correct
+        }
+        else if (irM == 0 && irR == 0 && irL == 1) {
+            // Drifted left, turn right
             turnRightSlow();
-            lastTurnDir = 'R';
-            deadZoneStart = 0;
-
-        } else if (irL == 0 && irM == 1 && irR == 1) {
-            // Only left sees tape - robot drifted far RIGHT, aggressive turn left
+        }
+        else if (irL == 0 && irM == 1 && irR == 1) {
+            // Far right, hard left
             turnLeft();
-            lastTurnDir = 'L';
-            deadZoneStart = 0;
-
-        } else if (irR == 0 && irM == 1 && irL == 1) {
-            // Only right sees tape - robot drifted far LEFT, aggressive turn right
+        }
+        else if (irR == 0 && irM == 1 && irL == 1) {
+            // Far left, hard right
             turnRight();
-            lastTurnDir = 'R';
-            deadZoneStart = 0;
-
-        } else {
-            // All sensors off tape - dead zone or tape ended
-            if (deadZoneStart == 0) {
-                deadZoneStart = now;
-            }
-
-            unsigned long deadZoneElapsed = now - deadZoneStart;
-
-            if (deadZoneElapsed < TAPE_END_TIMEOUT) {
-                // First phase: turn slowly in last known direction
-                Serial.print("# DEAD ZONE - recovering slow: "); Serial.println(lastTurnDir);
-                if (lastTurnDir == 'L') {
-                    turnLeftSlow();  // Use slow turn instead of aggressive
-                } else if (lastTurnDir == 'R') {
-                    turnRightSlow();  // Use slow turn instead of aggressive
-                } else {
-                    moveForward();
-                }
-            } else if (deadZoneElapsed < TAPE_END_TIMEOUT * 2) {
-                // Second phase: try opposite direction
-                Serial.print("# DEAD ZONE - trying opposite: ");
-                if (lastTurnDir == 'L') {
-                    Serial.println("R");
-                    turnRightSlow();
-                } else if (lastTurnDir == 'R') {
-                    Serial.println("L");
-                    turnLeftSlow();
-                } else {
-                    Serial.println("backward");
-                    moveBackward();
-                }
-            } else {
-                // Give up after trying both directions
-                tapeFollowMode = false;
-                stop();
-                Serial.println("# TAPE ENDED - stopping");
-            }
+        }
+        else if (irL == 0 && irM == 0 && irR == 0) {
+            // All on tape - turn right (from debug)
+            turnRight();
+        }
+        else {
+            // Off tape - move backward a tiny bit then stop
+            moveBackward();
+            delay(250);
+            stop();
         }
     }
 

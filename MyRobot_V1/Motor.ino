@@ -95,47 +95,39 @@ void moveForwardPWM(int speed) {
     analogWrite(enB, speed);
 }
 
-// Gentle correction — one motor coasts
-void turnRightSlow() {
-    // Left motor only — right coasts
+// Gentle correction (SWAPPED to match actual motor directions)
+void turnLeftSlow() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
     analogWrite(enA, 70);
-
     digitalWrite(in3, LOW);
     digitalWrite(in4, LOW);
     analogWrite(enB, 0);
 }
 
-void turnLeftSlow() {
-    // Right motor only — left coasts
+void turnRightSlow() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, LOW);
     analogWrite(enA, 0);
-
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
     analogWrite(enB, 80);
 }
 
-// Aggressive correction — one motor at full, other coasts
-void turnRight() {
-    // Left motor only — right coasts
+// Aggressive correction (SWAPPED to match actual motor directions)
+void turnLeft() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
     analogWrite(enA, 70);
-
     digitalWrite(in3, LOW);
     digitalWrite(in4, LOW);
     analogWrite(enB, 0);
 }
 
-void turnLeft() {
-    // Right motor only — left coasts
+void turnRight() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, LOW);
     analogWrite(enA, 0);
-
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
     analogWrite(enB, 80);
