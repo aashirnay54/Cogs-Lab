@@ -25,6 +25,10 @@ const int encB = 2;
 const int trigPin = 6;
 const int echoPin = 7;
 
+//Ultrasonic for Wall following (left side)
+const int trigPin2 = 4;
+const int echoPin2 = 5; 
+
 // Servo for object detection
 Servo sonarServo;
 const int servoPin = A5;  // Using A5 for servo
@@ -54,6 +58,7 @@ bool autonomousMode = false;
 bool followMode     = false;
 bool tapeFollowMode = false;
 bool objectDetectMode = false;
+bool wallFollowMode = false;
 int state = 0;
 char currentCommand = 'e';
 
@@ -91,6 +96,11 @@ float minObjectDistance = 200.0;              // for tracking closest object
 const float WALL_DISTANCE_THRESHOLD = 50.0;   // distances > this are likely the wall
 const float OBJECT_DETECTION_RANGE = 100.0;   // max range to consider for objects
 
+// Wall following parameters
+const float WALL_FRONT_DISTANCE = 10.0;   // Front wall detection threshold (cm)
+const float WALL_TARGET_DISTANCE = 20.0;  // Target distance from left wall (cm)
+const float WALL_TOLERANCE = 3.0;         // Acceptable deviation from target
+
 // Telemetry
 unsigned long lastPrintTime = 0;
 const int PRINT_INTERVAL    = 500;
@@ -104,6 +114,8 @@ void setup() {
     pinMode(encB, INPUT_PULLUP);
     pinMode(trigPin, OUTPUT);
     pinMode(echoPin, INPUT);
+    pinMode(trigPin2, OUTPUT);
+    pinMode(echoPin2, INPUT);
     pinMode(irLeft,   INPUT);
     pinMode(irRight,  INPUT);
     pinMode(irMiddle, INPUT);
@@ -139,7 +151,7 @@ void setup() {
     // // ─────────────────────────────────────────────────────────────
 
     Serial.println("# Serial Monitor Control Ready");
-    Serial.println("# Commands: o=object detect, v=test servo, f=follow, t=tape, e=stop, w/s/a/d=move");
+    Serial.println("# Commands: o=object detect, v=test servo, u=test ultrasonic, f=follow, t=tape, l=wall follow, e=stop, w/s/a/d=move");
 }
 
 void loop() {
@@ -233,12 +245,25 @@ void loop() {
                 Serial.println("# Testing servo...");
                 testServo();
             }
+            else if (cmd == 'u') {
+                // Test ultrasonic sensors
+                float frontDist = readUltrasonic();
+                float leftDist = readLeftUltrasonic();
+                Serial.println("# ULTRASONIC TEST");
+                Serial.print("# Front: ");
+                if (frontDist < 0) Serial.println("NO READING");
+                else { Serial.print(frontDist, 1); Serial.println(" cm"); }
+                Serial.print("# Left:  ");
+                if (leftDist < 0) Serial.println("NO READING");
+                else { Serial.print(leftDist, 1); Serial.println(" cm"); }
+            }
             else if (cmd == 'f') {
                 stop();
                 followMode = true;
                 autonomousMode = false;
                 tapeFollowMode = false;
                 objectDetectMode = false;
+                wallFollowMode = false;
                 Serial.println("# FOLLOW MODE");
             }
             else if (cmd == 't') {
@@ -247,6 +272,7 @@ void loop() {
                 autonomousMode = false;
                 followMode = false;
                 objectDetectMode = false;
+                wallFollowMode = false;
                 lastTurnDir = 'S';
                 deadZoneStart = 0;
                 Serial.println("# TAPE FOLLOW MODE");
@@ -257,20 +283,32 @@ void loop() {
                 autonomousMode = false;
                 followMode = false;
                 tapeFollowMode = false;
+                wallFollowMode = false;
                 state = 0;
                 sonarServo.write(90);  // center servo
                 Serial.println("# OBJECT DETECTION MODE STARTED");
+            }
+            else if (cmd == 'l') {
+                stop();
+                wallFollowMode = true;
+                autonomousMode = false;
+                followMode = false;
+                tapeFollowMode = false;
+                objectDetectMode = false;
+                Serial.println("# WALL FOLLOW MODE STARTED");
+                Serial.println("# Front: 10cm, Left: 20cm");
             }
             else if (cmd == 'e') {
                 autonomousMode = false;
                 followMode = false;
                 tapeFollowMode = false;
                 objectDetectMode = false;
+                wallFollowMode = false;
                 state = 0;
                 stop();
                 Serial.println("# MANUAL MODE");
             }
-            else if (!autonomousMode && !followMode && !tapeFollowMode && !objectDetectMode) {
+            else if (!autonomousMode && !followMode && !tapeFollowMode && !objectDetectMode && !wallFollowMode) {
                 executeCommand(cmd);
                 if (recording) {
                     unsigned long elapsed = now - recordStart;
@@ -450,6 +488,58 @@ void loop() {
         }
     }
 
+    // Wall follow mode
+    if (wallFollowMode) {
+        // Read both ultrasonic sensors
+        float frontDist = readUltrasonic();
+        float leftDist = readLeftUltrasonic();
+
+        // Handle invalid readings
+        if (frontDist < 0) frontDist = MAX_RANGE;
+        if (leftDist < 0) leftDist = MAX_RANGE;
+
+        // Debug output every 200ms
+        static unsigned long lastWallPrint = 0;
+        if (now - lastWallPrint >= 200) {
+            Serial.print("# WALL: Front=");
+            Serial.print(frontDist, 1);
+            Serial.print("cm | Left=");
+            Serial.print(leftDist, 1);
+            Serial.println("cm");
+            lastWallPrint = now;
+        }
+
+        // Wall following logic
+        if (frontDist <= WALL_FRONT_DISTANCE && leftDist <= WALL_TARGET_DISTANCE) {
+            // Front wall within 10cm AND left wall detected - turn right for 2 seconds
+            Serial.println("# CORNER - Turning RIGHT for 2 seconds");
+            turnRight();
+            delay(2000);
+            stop();
+        }
+        else if (frontDist <= WALL_FRONT_DISTANCE && leftDist > WALL_TARGET_DISTANCE) {
+            // Front wall within 10cm but no left wall - turn left
+            Serial.println("# FRONT WALL - Turning LEFT");
+            turnLeft();
+            delay(300);
+            stop();
+        }
+        else if (leftDist > WALL_TARGET_DISTANCE + WALL_TOLERANCE) {
+            // Left wall too far (>23cm) - turn left to get closer
+            Serial.println("# LEFT WALL FAR - Turning LEFT");
+            turnLeftSlow();
+        }
+        else if (leftDist < WALL_TARGET_DISTANCE - WALL_TOLERANCE) {
+            // Left wall too close (<17cm) - turn right to move away
+            Serial.println("# LEFT WALL CLOSE - Turning RIGHT");
+            turnRightSlow();
+        }
+        else {
+            // Within tolerance - go straight
+            moveForward();
+        }
+    }
+
     // Telemetry
     if (now - lastPrintTime >= PRINT_INTERVAL) {
         Serial.print("Cmd: ");    Serial.print(currentCommand);
@@ -468,6 +558,18 @@ float readUltrasonic() {
     digitalWrite(trigPin, HIGH); delayMicroseconds(10);
     digitalWrite(trigPin, LOW);  delayMicroseconds(2);
     long duration = pulseIn(echoPin, HIGH, 11600);
+    if (duration == 0 || duration < 150) return -1;
+    float distance = (duration * 0.0343) / 2.0;
+    if (distance < MIN_RANGE || distance > MAX_RANGE) return -1;
+    return distance;
+}
+
+// Read left ultrasonic sensor (for wall following)
+float readLeftUltrasonic() {
+    digitalWrite(trigPin2, LOW);  delayMicroseconds(2);
+    digitalWrite(trigPin2, HIGH); delayMicroseconds(10);
+    digitalWrite(trigPin2, LOW);  delayMicroseconds(2);
+    long duration = pulseIn(echoPin2, HIGH, 11600);
     if (duration == 0 || duration < 150) return -1;
     float distance = (duration * 0.0343) / 2.0;
     if (distance < MIN_RANGE || distance > MAX_RANGE) return -1;
