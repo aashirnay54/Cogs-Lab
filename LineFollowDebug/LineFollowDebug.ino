@@ -161,9 +161,9 @@ void loop() {
         
         
         else {
-            // Off tape - move backward a tiny bit then stop
+            // Off tape - small backward movement to find line
             moveBackward();
-            delay(250);  // Small backward movement
+            delay(200);
             stop();
         }
     }
@@ -185,10 +185,10 @@ void stop() {
 void moveForward() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 75);
+    analogWrite(enA, 120);
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 95);
+    analogWrite(enB, 140);
 }
 
 void moveBackward() {
@@ -223,7 +223,7 @@ void turnRightSlow() {
 void turnLeft() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 100);
+    analogWrite(enA, 150);
     digitalWrite(in3, LOW);
     digitalWrite(in4, LOW);
     analogWrite(enB, 0);
@@ -235,24 +235,6 @@ void turnRight() {
     analogWrite(enA, 0);
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 100);
+    analogWrite(enB, 150);
 }
 
-void turnRightShimmy() {
-    digitalWrite(in1, LOW);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, 0);
-    digitalWrite(in3, HIGH);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, 57);
-}
-
-void turnLeftShimmy() {
-    digitalWrite(in1, HIGH);
-    digitalWrite(in2, LOW);
-    analogWrite(enA, 60);
-    digitalWrite(in3, LOW);
-    digitalWrite(in4, LOW);
-    analogWrite(enB, 0);
-
-}

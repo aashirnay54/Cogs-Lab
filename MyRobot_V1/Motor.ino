@@ -37,17 +37,17 @@ void moveBackward() {
 void moveForward() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 57);
+    analogWrite(enA, 120);
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 77);
+    analogWrite(enB, 140);
 }
 
 void moveLeft() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 55);
+    analogWrite(enA, 100);
 
     digitalWrite(in3, LOW);
     digitalWrite(in4, LOW);
@@ -61,7 +61,7 @@ void moveRight() {
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 76);
+    analogWrite(enB, 120);
 }
 
 void turnRobotInPlace() {
@@ -118,7 +118,7 @@ void turnRightSlow() {
 void turnLeft() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 70);
+    analogWrite(enA, 100);
     digitalWrite(in3, LOW);
     digitalWrite(in4, LOW);
     analogWrite(enB, 0);
@@ -130,5 +130,5 @@ void turnRight() {
     analogWrite(enA, 0);
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 80);
+    analogWrite(enB, 120);
 }
