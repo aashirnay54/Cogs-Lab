@@ -511,10 +511,13 @@ void loop() {
 
         // Wall following logic
         if (frontDist <= WALL_FRONT_DISTANCE && leftDist <= WALL_TARGET_DISTANCE) {
-            // Front wall within 10cm AND left wall detected - turn right for 2 seconds
-            Serial.println("# CORNER - Turning RIGHT for 2 seconds");
+            // Corner detected - back up then turn right
+            Serial.println("# CORNER - Backing up then turning RIGHT");
+            moveBackward();
+            delay(500);
+            stop();
             turnRight();
-            delay(2000);
+            delay(500);
             stop();
         }
         else if (frontDist <= WALL_FRONT_DISTANCE && leftDist > WALL_TARGET_DISTANCE) {
@@ -525,9 +528,14 @@ void loop() {
             stop();
         }
         else if (leftDist > WALL_TARGET_DISTANCE + WALL_TOLERANCE) {
-            // Left wall too far (>23cm) - turn left to get closer
-            Serial.println("# LEFT WALL FAR - Turning LEFT");
-            turnLeftSlow();
+            // Left wall too far (>23cm) - turn left then move forward
+            Serial.println("# LEFT WALL FAR - Turning LEFT then forward");
+            turnLeft();
+            delay(300);
+            stop();
+            moveForward();
+            delay(500);
+            stop();
         }
         else if (leftDist < WALL_TARGET_DISTANCE - WALL_TOLERANCE) {
             // Left wall too close (<17cm) - turn right to move away

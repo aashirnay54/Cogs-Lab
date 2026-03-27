@@ -27,11 +27,11 @@ void stop() {
 void moveBackward() {
     digitalWrite(in1, LOW);
     digitalWrite(in2, HIGH);
-    analogWrite(enA, 57);
+    analogWrite(enA, 100);
 
     digitalWrite(in3, LOW);
     digitalWrite(in4, HIGH);
-    analogWrite(enB, 77);
+    analogWrite(enB, 120);
 }
 
 void moveForward() {
@@ -111,7 +111,7 @@ void turnRightSlow() {
     analogWrite(enA, 0);
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 80);
+    analogWrite(enB, 95);
 }
 
 // Aggressive correction (SWAPPED to match actual motor directions)
@@ -130,5 +130,5 @@ void turnRight() {
     analogWrite(enA, 0);
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 120);
+    analogWrite(enB, 170);
 }
