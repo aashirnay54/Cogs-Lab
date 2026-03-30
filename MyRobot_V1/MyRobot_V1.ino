@@ -7,7 +7,7 @@
 // WiFiServer server(80);
 // // ─────────────────────────────────────────────────────────────────
 
-// Motor A pins
+// Motor A pins 
 const int enA = 11;  // PWM ~
 const int in1 = 13;
 const int in2 = 12;
@@ -32,6 +32,8 @@ const int echoPin2 = 5;
 // Servo for object detection
 Servo sonarServo;
 const int servoPin = A5;  // Using A5 for servo
+unsigned long objectDetectStartTime = 0;
+const unsigned long OBJECT_DETECT_DELAY = 2000;
 
 // IR sensors (0 = on tape, 1 = off tape)
 const int irLeft   = A2;
@@ -94,7 +96,7 @@ int angleMap[NUM_ANGLES];                     // stores the actual angles
 int targetAngle = 90;                         // angle to turn towards (0-180, 90 is center)
 float minObjectDistance = 200.0;              // for tracking closest object
 const float WALL_DISTANCE_THRESHOLD = 50.0;   // distances > this are likely the wall
-const float OBJECT_DETECTION_RANGE = 100.0;   // max range to consider for objects
+const float OBJECT_DETECTION_RANGE = 40.0;   // max range to consider for objects
 
 // Wall following parameters
 const float WALL_FRONT_DISTANCE = 10.0;   // Front wall detection threshold (cm)
@@ -286,6 +288,7 @@ void loop() {
                 wallFollowMode = false;
                 state = 0;
                 sonarServo.write(90);  // center servo
+                objectDetectStartTime = now;
                 Serial.println("# OBJECT DETECTION MODE STARTED");
             }
             else if (cmd == 'l') {
@@ -357,6 +360,9 @@ void loop() {
 
     // Object detection mode
     if (objectDetectMode) {
+    if (now - objectDetectStartTime < OBJECT_DETECT_DELAY) {
+        moveForward();
+    } else {
         if (state == 0) {
             // State 0: Perform sweep
             Serial.println("# STATE 0: Performing sweep");
@@ -370,15 +376,16 @@ void loop() {
             int objectIdx = detectObject();
             if (objectIdx >= 0) {
                 Serial.println("# STATE 1 -> 2: Object found! Turning towards it");
-                state = 2;  // object found, proceed to turn
+                state = 2;
             } else {
-                // No object detected - turn right to explore and scan again
                 Serial.println("# STATE 1 -> 0: No object found - rotating right to explore");
-                turnRightSlow();  // Use slow turn
-                delay(200);  // Reduced from 300ms - slower rotation
+                turnRightSlow();
+                delay(200);
+                moveForward();
+                delay(200);
                 stop();
                 delay(500);
-                state = 0;  // scan again from new position
+                state = 0;
             }
         }
         else if (state == 2) {
@@ -387,33 +394,30 @@ void loop() {
             int turnDir = calculateTurnDirection();
 
             if (abs(turnDir) < 15) {
-                // Close enough to center, move forward
                 Serial.println("# STATE 2 -> 3: Aligned! Moving forward");
                 state = 3;
             } else if (turnDir > 0) {
-                // Turn left slowly
                 Serial.print("# Turning LEFT ");
                 Serial.print(turnDir);
                 Serial.println(" degrees");
-                turnLeftSlow();  // Use slow turn
-                delay(abs(turnDir) * 8);  // Reduced multiplier for slower turn
+                turnLeftSlow();
+                delay(abs(turnDir) * 8);
                 stop();
                 delay(500);
             } else {
-                // Turn right slowly
                 Serial.print("# Turning RIGHT ");
                 Serial.print(abs(turnDir));
                 Serial.println(" degrees");
-                turnRightSlow();  // Use slow turn
-                delay(abs(turnDir) * 8);  // Reduced multiplier for slower turn
+                turnRightSlow();
+                delay(abs(turnDir) * 8);
                 stop();
                 delay(500);
             }
 
             if (abs(turnDir) < 15) {
-                state = 3;  // aligned, move forward
+                state = 3;
             } else {
-                state = 0;  // verify alignment with new sweep
+                state = 0;
             }
         }
         else if (state == 3) {
@@ -425,21 +429,21 @@ void loop() {
             if (minObjectDistance > 15.0) {
                 Serial.println("# MOVING FORWARD towards object!");
                 moveForward();
-                delay(500);  // move for a bit
+                delay(500);
                 stop();
                 delay(200);
                 Serial.println("# Stopped. Rescanning to verify position...");
-                state = 0;  // sweep again to recheck position
+                state = 0;
             } else {
-                // Reached object!
                 stop();
                 Serial.println("# ========================================");
                 Serial.println("# OBJECT REACHED! Mission complete!");
                 Serial.println("# ========================================");
-                objectDetectMode = false;  // mission complete
+                objectDetectMode = false;
             }
         }
     }
+}
 
     // Tape follow mode (updated from LineFollowDebug)
     if (tapeFollowMode) {
@@ -485,6 +489,7 @@ void loop() {
             moveBackward();
             delay(250);
             stop();
+            
         }
     }
 

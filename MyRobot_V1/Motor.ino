@@ -37,17 +37,17 @@ void moveBackward() {
 void moveForward() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 120);
+    analogWrite(enA, 110);
 
     digitalWrite(in3, HIGH);
     digitalWrite(in4, LOW);
-    analogWrite(enB, 140);
+    analogWrite(enB, 155);
 }
 
 void moveLeft() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 100);
+    analogWrite(enA, 120);
 
     digitalWrite(in3, LOW);
     digitalWrite(in4, LOW);
@@ -118,7 +118,7 @@ void turnRightSlow() {
 void turnLeft() {
     digitalWrite(in1, HIGH);
     digitalWrite(in2, LOW);
-    analogWrite(enA, 100);
+    analogWrite(enA, 170);
     digitalWrite(in3, LOW);
     digitalWrite(in4, LOW);
     analogWrite(enB, 0);
